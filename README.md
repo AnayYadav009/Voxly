@@ -5,7 +5,7 @@ Voice-enabled personal finance dashboard with a Flask backend and React frontend
 ---
 
 ## Prerequisites
--- Python 3.13 (recommended) with virtualenv support
+- Python 3.13 (recommended) with virtualenv support
 - Node.js 20 LTS and npm
 - SQLite (bundled with Python)
 - Speech recognition dependencies for optional voice features: microphone access, PyAudio-compatible stack (SoundDevice + PortAudio)
@@ -31,7 +31,7 @@ cd .\frontend
 npm install
 npm start        # CRA dev server at http://localhost:3000
 ```
-The frontend dev server proxies API calls to the Flask backend via the configured CRA proxy.
+The frontend dev server proxies API calls to the Flask backend via the configured CRA proxy (set in frontend/package.json).
 
 ---
 
@@ -40,9 +40,9 @@ The frontend dev server proxies API calls to the Flask backend via the configure
    ```powershell
    cd .\frontend
    npm run build
-   cd ..
+   cd .. 
    ```
-2. Start Flask in production mode (any WSGI server or `python app.py`). Flask now serves the built assets from `/` or `/app`.
+2. Start Flask in production mode (any WSGI server or `python app.py`). Flask will serve the built assets from `/` or `/app`.
 3. Optional environment variables:
    - `FLASK_ENV=production`
    - `PORT=5000` (override default)
@@ -60,7 +60,7 @@ cd .\frontend
 npm test -- --watchAll=false
 ```
 
-Integration tests stub the SQLite database and verify key endpoints: `/api/add`, `/api/voice_command`, `/api/charts/*`.
+Integration tests use a stubbed SQLite database and verify key endpoints: `/api/add`, `/api/voice_command`, `/api/charts/*`.
 
 ---
 
