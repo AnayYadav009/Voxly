@@ -11,10 +11,6 @@ try:
     from dateparser.search import search_dates  # type: ignore
     _HAS_DATEPARSER = True
 except Exception:
-    # dateparser is optional for approximate natural-language dates used by
-    # the voice parser. If it's unavailable (e.g. not installed in the venv),
-    # fall back to no-date behaviour and avoid raising ImportError during
-    # web requests that only need basic command parsing.
     dateparser = None  # type: ignore
     def search_dates(*args, **kwargs):  # fallback stub
         return None
