@@ -1,3 +1,35 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+	:root {
+		--brand-blue-25: #f5f8ff;
+		--brand-blue-50: #eff6ff;
+		--brand-blue-100: #dbeafe;
+		--brand-blue-900: #1e3a8a;
+		--content-max-width: 80rem;
+	}
+
+	body {
+		@apply bg-[var(--brand-blue-50)] text-slate-900 font-['Inter','Segoe_UI',system-ui,-apple-system,sans-serif] antialiased;
+	}
+
+	::selection {
+		@apply bg-blue-200 text-blue-900;
+	}
+}
+
+@layer components {
+	.app-shell {
+		@apply min-h-screen bg-gradient-to-br from-blue-50 to-blue-100;
+	}
+
+	.app-card {
+		@apply bg-white rounded-2xl shadow-lg border border-blue-100;
+	}
+
+	.app-section {
+		@apply bg-white rounded-2xl shadow-lg border border-blue-100 p-6;
+	}
+}

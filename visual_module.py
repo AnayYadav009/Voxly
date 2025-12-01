@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import matplotlib
 matplotlib.use("Agg")
@@ -50,43 +50,57 @@ def plot_daily_bar(df: pd.DataFrame, filename: str) -> Optional[str]:
     plt.close(fig)
     return path
 
-def get_category_breakdown() -> pd.DataFrame:
-    return fetch_dataframe(
+def get_category_breakdown(user_id: Optional[str] = None) -> pd.DataFrame:
+    where_clause = "WHERE user_id = ?" if user_id else ""
+    params: tuple = (user_id,) if user_id else ()
+    query = (
         """
         SELECT category, COALESCE(SUM(amount), 0) AS total
         FROM expenses
+        {where}
         GROUP BY category
         ORDER BY total DESC
         """
-    )
+    ).format(where=where_clause)
+    return fetch_dataframe(query, params)
 
-def get_recent_daily_totals(days: int = 7) -> pd.DataFrame:
+def get_recent_daily_totals(days: int = 7, user_id: Optional[str] = None) -> pd.DataFrame:
     query = """
         SELECT date, COALESCE(SUM(amount), 0) AS total
         FROM expenses
         WHERE date >= date('now', ?)
+        {user_filter}
         GROUP BY date
         ORDER BY date
     """
     offset = f"-{days - 1} day"
-    return fetch_dataframe(query, (offset,))
+    params: List[Any] = [offset]
+    user_filter = ""
+    if user_id:
+        user_filter = "AND user_id = ?"
+        params.append(user_id)
+    return fetch_dataframe(query.format(user_filter=user_filter), tuple(params))
 
-def get_monthly_totals_by_month(months: int = 6) -> pd.DataFrame:
-    df = fetch_dataframe(
+def get_monthly_totals_by_month(months: int = 6, user_id: Optional[str] = None) -> pd.DataFrame:
+    where_clause = "WHERE user_id = ?" if user_id else ""
+    params: tuple = (user_id,) if user_id else ()
+    query = (
         """
         SELECT strftime('%Y-%m', date) AS month, COALESCE(SUM(amount), 0) AS total
         FROM expenses
+        {where}
         GROUP BY strftime('%Y-%m', date)
         ORDER BY month
         """
-    )
+    ).format(where=where_clause)
+    df = fetch_dataframe(query, params)
     if months and not df.empty:
         df = df.tail(months)
     return df.reset_index(drop=True)
 
-def generate_all_charts() -> Dict[str, Optional[str]]:
+def generate_all_charts(user_id: Optional[str] = None) -> Dict[str, Optional[str]]:
     charts: Dict[str, Optional[str]] = {
-        "category": plot_category_pie(get_category_breakdown(), "category_pie.png"),
-        "daily": plot_daily_bar(get_recent_daily_totals(7), "daily_bar.png"),
+        "category": plot_category_pie(get_category_breakdown(user_id=user_id), "category_pie.png"),
+        "daily": plot_daily_bar(get_recent_daily_totals(7, user_id=user_id), "daily_bar.png"),
     }
     return charts

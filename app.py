@@ -1,10 +1,20 @@
 import os
+import sqlite3
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, g
 from flask_cors import CORS
 
+from auth import (
+    PasswordPolicyError,
+    create_access_token,
+    create_refresh_token,
+    decode_access_token,
+    decode_refresh_token,
+    hash_password,
+    verify_password,
+)
 from budget_module import (
     BudgetLimit,
     BudgetStatus,
@@ -15,13 +25,25 @@ from budget_module import (
     set_budget_limit,
     summarize_alerts,
 )
-from config import DATE_FORMAT, REACT_BUILD_DIR, REACT_INDEX_FILE
+from config import (
+    COMMAND_LOGGING_ENABLED,
+    DATE_FORMAT,
+    REACT_BUILD_DIR,
+    REACT_INDEX_FILE,
+)
 from database import (
     add_expense,
+    create_user,
     delete_last_expense,
+    get_user_preferences,
     get_recent_expenses,
     get_total_by_category,
     get_total_today,
+    get_user_by_email,
+    get_user_by_id,
+    log_command_event,
+    touch_user_timestamp,
+    update_user_log_opt_in,
 )
 from summary_module import (
     get_monthly_summary_text,
@@ -55,6 +77,67 @@ VOICE_HELP_TEXT = (
     "- Stop to exit"
 )
 
+def _public_user_payload(user: Dict[str, Any]) -> Dict[str, Any]:
+    if not user:
+        return {}
+    return {
+        "id": user.get("id"),
+        "email": user.get("email"),
+        "display_name": user.get("display_name"),
+        "log_opt_in": bool(user.get("log_opt_in")),
+    }
+
+
+def _user_preferences_payload(user: Dict[str, Any]) -> Dict[str, Any]:
+    return {"log_opt_in": bool(user.get("log_opt_in"))}
+
+def _extract_bearer_token() -> Optional[str]:
+    auth_header = request.headers.get("Authorization", "").strip()
+    if auth_header.lower().startswith("bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+    return None
+
+def _unauthorized_response():
+    return jsonify({"error": "Authentication required."}), 401
+
+def _require_authenticated_user() -> Optional[Dict[str, Any]]:
+    user = getattr(g, "current_user", None)
+    if not user:
+        return None
+    return user
+
+def _normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+def _auth_success_response(user: Dict[str, Any]):
+    access_token = create_access_token(user["id"])
+    refresh_token = create_refresh_token(user["id"])
+    touch_user_timestamp(user["id"])
+    return jsonify(
+        {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": _public_user_payload(user),
+        }
+    )
+
+
+def _should_log_commands(user: Optional[Dict[str, Any]]) -> bool:
+    return COMMAND_LOGGING_ENABLED and bool(user and user.get("log_opt_in"))
+
+@app.before_request
+def attach_current_user() -> None:
+    g.current_user = None
+    token = _extract_bearer_token()
+    if not token:
+        return
+    user_id = decode_access_token(token)
+    if not user_id:
+        return
+    user = get_user_by_id(user_id)
+    if user:
+        g.current_user = user
+
 def _to_static_path(path: Optional[str]) -> Optional[str]:
     if not path:
         return None
@@ -74,8 +157,8 @@ def _serve_react_asset(path: Optional[str] = None):
             return send_from_directory(REACT_BUILD_DIR, relative_path)
     return send_from_directory(REACT_BUILD_DIR, "index.html")
 
-def _serialize_category_breakdown() -> Dict[str, Any]:
-    df = get_category_breakdown()
+def _serialize_category_breakdown(user_id: Optional[str] = None) -> Dict[str, Any]:
+    df = get_category_breakdown(user_id=user_id)
     if df.empty:
         return {"items": []}
     items = [
@@ -84,8 +167,8 @@ def _serialize_category_breakdown() -> Dict[str, Any]:
     ]
     return {"items": items}
 
-def _serialize_daily_totals(days: int = 7) -> Dict[str, Any]:
-    df = get_recent_daily_totals(days)
+def _serialize_daily_totals(days: int = 7, user_id: Optional[str] = None) -> Dict[str, Any]:
+    df = get_recent_daily_totals(days, user_id=user_id)
     totals_by_date = {
         str(row["date"]): float(row["total"])
         for _, row in df.iterrows()
@@ -105,8 +188,8 @@ def _serialize_daily_totals(days: int = 7) -> Dict[str, Any]:
         )
     return {"items": series}
 
-def _serialize_monthly_totals(months: int = 6) -> Dict[str, Any]:
-    df = get_monthly_totals_by_month(months)
+def _serialize_monthly_totals(months: int = 6, user_id: Optional[str] = None) -> Dict[str, Any]:
+    df = get_monthly_totals_by_month(months, user_id=user_id)
     totals_by_month = {
         str(row["month"]): float(row["total"])
         for _, row in df.iterrows()
@@ -133,12 +216,12 @@ def _serialize_monthly_totals(months: int = 6) -> Dict[str, Any]:
         )
     return {"items": series}
 
-def _build_chart_series(days: int = 7, months: int = 6) -> Dict[str, Any]:
+def _build_chart_series(days: int = 7, months: int = 6, user_id: Optional[str] = None) -> Dict[str, Any]:
     """Compile chart-friendly aggregates for API consumers."""
     return {
-        "category_breakdown": _serialize_category_breakdown()["items"],
-        "daily_totals": _serialize_daily_totals(days)["items"],
-        "monthly_totals": _serialize_monthly_totals(months)["items"],
+        "category_breakdown": _serialize_category_breakdown(user_id=user_id)["items"],
+        "daily_totals": _serialize_daily_totals(days, user_id=user_id)["items"],
+        "monthly_totals": _serialize_monthly_totals(months, user_id=user_id)["items"],
     }
 
 def _safe_limit(value: Any, default: int = 5, *, minimum: int = 1, maximum: int = 50) -> int:
@@ -148,16 +231,16 @@ def _safe_limit(value: Any, default: int = 5, *, minimum: int = 1, maximum: int 
         return default
     return max(minimum, min(numeric, maximum))
 
-def _build_dashboard_context():
-    charts = generate_all_charts()
-    budget_statuses = evaluate_monthly_budgets()
+def _build_dashboard_context(user_id: Optional[str] = None):
+    charts = generate_all_charts() if user_id is None else {}
+    budget_statuses = evaluate_monthly_budgets(user_id=user_id)
     return {
-        "total_today": get_total_today(),
-        "monthly_total": get_monthly_total(),
-        "category_totals": get_total_by_category(),
-        "recent_expenses": get_recent_expenses(5),
-        "weekly_summary": get_weekly_summary_text(),
-        "monthly_summary": get_monthly_summary_text(),
+        "total_today": get_total_today(user_id=user_id),
+        "monthly_total": get_monthly_total(user_id=user_id),
+        "category_totals": get_total_by_category(user_id=user_id),
+        "recent_expenses": get_recent_expenses(5, user_id=user_id),
+        "weekly_summary": get_weekly_summary_text(user_id=user_id),
+        "monthly_summary": get_monthly_summary_text(user_id=user_id),
         "budget_status": [
             {
                 "category": status.category,
@@ -175,7 +258,7 @@ def _build_dashboard_context():
             key: _to_static_path(path)
             for key, path in charts.items()
         },
-        "chart_series": _build_chart_series(),
+        "chart_series": _build_chart_series(user_id=user_id),
     }
 
 @app.route("/")
@@ -208,7 +291,10 @@ def serve_react_app(path: str):
 
 @app.route("/api/summary")
 def api_summary():
-    context = _build_dashboard_context()
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    context = _build_dashboard_context(user_id=user["id"])
     return jsonify(
         total_today=context["total_today"],
         weekly_summary=context["weekly_summary"],
@@ -219,24 +305,33 @@ def api_summary():
 
 @app.route("/api/recent")
 def api_recent():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
     limit = _safe_limit(request.args.get("limit"), default=5)
-    return jsonify(get_recent_expenses(limit))
+    return jsonify(get_recent_expenses(limit, user_id=user["id"]))
 
 @app.route("/api/charts/category-breakdown")
 def api_chart_category_breakdown():
-    payload = _serialize_category_breakdown()
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    payload = _serialize_category_breakdown(user_id=user["id"])
     # use timezone-aware UTC timestamp
     payload["generated_at"] = datetime.now(timezone.utc).isoformat()
     return jsonify(payload)
 
 @app.route("/api/charts/daily-totals")
 def api_chart_daily_totals():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
     try:
         requested_days = int(request.args.get("days", 7))
     except (TypeError, ValueError):
         requested_days = 7
     days = max(1, min(requested_days, 90))
-    payload = _serialize_daily_totals(days)
+    payload = _serialize_daily_totals(days, user_id=user["id"])
     # use timezone-aware UTC timestamp
     payload["generated_at"] = datetime.now(timezone.utc).isoformat()
     payload["days"] = days
@@ -244,19 +339,125 @@ def api_chart_daily_totals():
 
 @app.route("/api/charts/monthly-totals")
 def api_chart_monthly_totals():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
     try:
         requested_months = int(request.args.get("months", 6))
     except (TypeError, ValueError):
         requested_months = 6
     months = max(1, min(requested_months, 24))
-    payload = _serialize_monthly_totals(months)
+    payload = _serialize_monthly_totals(months, user_id=user["id"])
     # use timezone-aware UTC timestamp
     payload["generated_at"] = datetime.now(timezone.utc).isoformat()
     payload["months"] = months
     return jsonify(payload)
 
+@app.route("/api/auth/register", methods=["POST"])
+def api_auth_register():
+    data = request.get_json(silent=True) or {}
+    email = _normalize_email(data.get("email", ""))
+    password = str(data.get("password", ""))
+    display_name = data.get("name") or data.get("display_name")
+
+    if not email or "@" not in email:
+        return jsonify({"error": "A valid email address is required."}), 400
+    if get_user_by_email(email):
+        return jsonify({"error": "Email already in use."}), 409
+
+    try:
+        password_hash = hash_password(password)
+    except PasswordPolicyError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        user = create_user(email=email, password_hash=password_hash, display_name=display_name)
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Email already in use."}), 409
+
+    return _auth_success_response(user)
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    data = request.get_json(silent=True) or {}
+    email = _normalize_email(data.get("email", ""))
+    password = str(data.get("password", ""))
+
+    if not email or not password:
+        return jsonify({"error": "Email and password are required."}), 400
+
+    user = get_user_by_email(email)
+    if not user or not verify_password(password, user.get("password_hash", "")):
+        return jsonify({"error": "Invalid email or password."}), 401
+
+    return _auth_success_response(user)
+
+@app.route("/api/auth/me")
+def api_auth_me():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    return jsonify({"user": _public_user_payload(user)})
+
+
+@app.route("/api/preferences", methods=["GET", "PUT"])
+def api_preferences():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    if request.method == "GET":
+        return jsonify(
+            {
+                "preferences": _user_preferences_payload(user),
+                "logging_available": COMMAND_LOGGING_ENABLED,
+            }
+        )
+    data = request.get_json(silent=True) or {}
+    raw_value = data.get("log_opt_in")
+    if isinstance(raw_value, str):
+        value = raw_value.lower() in {"1", "true", "yes", "on"}
+    else:
+        value = bool(raw_value)
+    update_user_log_opt_in(user["id"], value)
+    user["log_opt_in"] = 1 if value else 0
+    return jsonify({"preferences": _user_preferences_payload(user)})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_auth_logout():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    touch_user_timestamp(user["id"])
+    return jsonify({"status": "logged_out"})
+
+
+@app.route("/api/auth/refresh", methods=["POST"])
+def api_auth_refresh():
+    data = request.get_json(silent=True) or {}
+    refresh_token = data.get("refresh_token") or _extract_bearer_token()
+    user_id = decode_refresh_token(refresh_token)
+    if not user_id:
+        return _unauthorized_response()
+    user = get_user_by_id(user_id)
+    if not user:
+        return _unauthorized_response()
+    access_token = create_access_token(user_id)
+    new_refresh_token = create_refresh_token(user_id)
+    touch_user_timestamp(user_id)
+    return jsonify(
+        {
+            "access_token": access_token,
+            "refresh_token": new_refresh_token,
+            "user": _public_user_payload(user),
+        }
+    )
+
 @app.route("/api/regenerate-charts", methods=["POST"])
 def api_regenerate_charts():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
     try:
         charts = generate_all_charts()
         rel_paths = {key: _to_static_path(path) for key, path in charts.items()}
@@ -268,6 +469,9 @@ def api_regenerate_charts():
 
 @app.route("/api/add", methods=["POST"])
 def api_add():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
     data = request.get_json(silent=True) or {}
     try:
         amount = float(data.get("amount", 0))
@@ -279,8 +483,8 @@ def api_add():
         return jsonify({"error": "Amount must be positive and category required."}), 400
 
     try:
-        expense_id = add_expense(amount, category)
-        context = _build_dashboard_context()
+        expense_id = add_expense(amount, category, user_id=user["id"])
+        context = _build_dashboard_context(user_id=user["id"])
         log_info("Expense added via API (id=%s)", expense_id)
         return jsonify(
             {
@@ -294,9 +498,9 @@ def api_add():
         log_error("Add expense API failed: %s", exc)
         return jsonify({"error": "Failed to add expense."}), 500
 
-def _refresh_dashboard() -> Dict[str, Any]:
+def _refresh_dashboard(user_id: Optional[str] = None) -> Dict[str, Any]:
     """Return a fresh snapshot of dashboard data for the frontend."""
-    return _build_dashboard_context()
+    return _build_dashboard_context(user_id=user_id)
 
 def _serialize_budget_status(statuses):
     return [asdict(status) for status in statuses]
@@ -391,10 +595,14 @@ def _summarize_chart_series(series: Dict[str, Any]) -> str:
 
 @app.route("/api/voice_command", methods=["POST"])
 def api_voice_command():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
     payload: Dict[str, Any] = request.get_json(silent=True) or {}
     command_text = str(payload.get("command", "")).strip()
     if not command_text:
         return jsonify({"error": "Command text required."}), 400
+    user_id = user["id"]
 
     try:
         global parse_expense  # type: ignore
@@ -408,6 +616,23 @@ def api_voice_command():
 
     action = parsed.get("action", "unknown")
     response: Dict[str, Any] = {"action": action}
+
+    if _should_log_commands(user):
+        try:
+            entity_keys = ["amount", "category", "date", "warn_ratio"]
+            entities = {key: parsed.get(key) for key in entity_keys if parsed.get(key) is not None}
+            log_command_event(
+                user_id=user_id,
+                raw_text=command_text,
+                parsed_payload=parsed,
+                intent=action,
+                entities=entities,
+                channel="voice",
+                confidence=parsed.get("confidence"),
+                metadata={"payload": {k: payload.get(k) for k in ("limit", "channel") if k in payload}},
+            )
+        except Exception as exc:
+            log_error("Command logging failed: %s", exc)
 
     if action == "none":
         response["reply"] = "I did not hear a command."
@@ -449,10 +674,11 @@ def api_voice_command():
                 category,
                 date=parsed.get("date"),
                 description=parsed.get("description"),
+                user_id=user_id,
             )
             response["reply"] = f"Added ₹{float(amount):.2f} to {category}."
             response["expense_id"] = expense_id
-            dashboard = _refresh_dashboard()
+            dashboard = _refresh_dashboard(user_id=user_id)
             response["dashboard"] = dashboard
             # record this as the last performed command for repeat
             last_performed_command = parsed.copy()
@@ -464,7 +690,7 @@ def api_voice_command():
                     alert_year, alert_month = parsed_date.year, parsed_date.month
                 except ValueError:
                     pass
-            status = get_alert_for_category(category, year=alert_year, month=alert_month)
+            status = get_alert_for_category(category, year=alert_year, month=alert_month, user_id=user_id)
             if status:
                 response["budget_alert"] = status.message
         except Exception as exc:
@@ -475,7 +701,7 @@ def api_voice_command():
 
     if action == "delete":
         try:
-            removed_id = delete_last_expense()
+            removed_id = delete_last_expense(user_id=user_id)
         except Exception as exc:
             log_error("Voice delete expense failed: %s", exc)
             response["reply"] = "Failed to delete the last expense."
@@ -485,12 +711,12 @@ def api_voice_command():
             return jsonify(response)
         response["reply"] = f"Deleted expense number {removed_id}."
         response["deleted_expense_id"] = removed_id
-        response["dashboard"] = _refresh_dashboard()
+        response["dashboard"] = _refresh_dashboard(user_id=user_id)
         last_performed_command = parsed.copy()
         return jsonify(response)
 
     if action == "balance":
-        total_today = get_total_today()
+        total_today = get_total_today(user_id=user_id)
         response["reply"] = f"Today's total spend is ₹{total_today:.2f}."
         response["total_today"] = total_today
         last_performed_command = parsed.copy()
@@ -498,21 +724,21 @@ def api_voice_command():
 
     if action == "recent":
         limit = _safe_limit(payload.get("limit"), default=5)
-        recent_items = get_recent_expenses(limit)
+        recent_items = get_recent_expenses(limit, user_id=user_id)
         response["reply"] = "Here are the most recent expenses."
         response["recent_expenses"] = recent_items
         last_performed_command = parsed.copy()
         return jsonify(response)
 
     if action == "weekly":
-        summary_text = get_weekly_summary_text()
+        summary_text = get_weekly_summary_text(user_id=user_id)
         response["reply"] = summary_text
         last_performed_command = parsed.copy()
         return jsonify(response)
 
     if action == "monthly":
-        summary_text = get_monthly_summary_text()
-        statuses = evaluate_monthly_budgets()
+        summary_text = get_monthly_summary_text(user_id=user_id)
+        statuses = evaluate_monthly_budgets(user_id=user_id)
         limits = get_budget_limits()
         if statuses:
             lines = _collect_budget_lines(statuses, limits)
@@ -526,7 +752,7 @@ def api_voice_command():
     if action == "show_budgets":
         category = parsed.get("category")
         limits = get_budget_limits()
-        statuses = evaluate_monthly_budgets()
+        statuses = evaluate_monthly_budgets(user_id=user_id)
         if category:
             status = _find_budget_status(category, statuses)
             limit_info = limits.get(category.lower()) if category else None
@@ -592,7 +818,7 @@ def api_voice_command():
             return jsonify(response), 500
         limits = get_budget_limits()
         limit_info = limits.get(category.lower())
-        statuses = evaluate_monthly_budgets()
+        statuses = evaluate_monthly_budgets(user_id=user_id)
         status = _find_budget_status(category, statuses)
         if status:
             lines = _collect_budget_lines([status], limits)
@@ -641,7 +867,7 @@ def api_voice_command():
             response["reply"] = f"No budget configured for {human_name}."
             return jsonify(response)
         limits = get_budget_limits()
-        statuses = evaluate_monthly_budgets()
+        statuses = evaluate_monthly_budgets(user_id=user_id)
         lines = _collect_budget_lines(statuses, limits) if statuses else []
         if lines:
             response["reply"] = f"Removed {human_name} budget. " + " ".join(lines)
@@ -656,7 +882,7 @@ def api_voice_command():
 
     if action == "chart_summary":
         try:
-            series = _build_chart_series()
+            series = _build_chart_series(user_id=user_id)
         except Exception as exc:
             log_error("Voice chart summary failed: %s", exc)
             response["reply"] = "Chart data is unavailable right now."

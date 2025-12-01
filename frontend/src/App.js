@@ -27,6 +27,7 @@ import {
   sendVoiceCommand as apiSendVoiceCommand,
 } from './api';
 import ConfirmDialog from './components/ConfirmDialog';
+import { AuthProvider, useAuth } from './context/AuthContext';
 
 const RECENT_LIMIT = 12;
 const BUDGET_GUESSES = {
@@ -252,7 +253,12 @@ const computeDailySpending = (expenses = []) => {
   return buckets.map(({ day, amount }) => ({ day, amount }));
 };
 
-const VoiceFinanceDashboard = () => {
+const VoiceFinanceDashboard = ({
+  user,
+  preferences = { log_opt_in: false },
+  onLogout = () => {},
+  onToggleLogging = async () => {},
+}) => {
   const [summary, setSummary] = useState(null);
   const [recentExpenses, setRecentExpenses] = useState([]);
   const [chartCategories, setChartCategories] = useState([]);
@@ -269,10 +275,16 @@ const VoiceFinanceDashboard = () => {
   const [voiceConfirm, setVoiceConfirm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [budgetWarning, setBudgetWarning] = useState(null);
+  const [preferenceSaving, setPreferenceSaving] = useState(false);
   const recognitionRef = useRef(null);
   const toastTimerRef = useRef(null);
+  const displayName = user?.display_name || user?.displayName || user?.email || 'You';
+  const userEmail = user?.email || '';
 
   const loadData = useCallback(async () => {
+    if (!user) {
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -353,7 +365,7 @@ const VoiceFinanceDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     loadData();
@@ -672,14 +684,79 @@ const VoiceFinanceDashboard = () => {
 
   const maxDaily = dailySpending.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
   const maxMonthly = monthlyTrend.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
+  const loggingEnabled = Boolean(preferences?.log_opt_in);
+
+  const handlePreferenceToggle = useCallback(async () => {
+    if (!user) {
+      return;
+    }
+    setPreferenceSaving(true);
+    try {
+      const next = !loggingEnabled;
+      await onToggleLogging(next);
+      setToast({
+        type: 'success',
+        message: next ? 'Voice command logging enabled.' : 'Voice command logging disabled.',
+      });
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Unable to update preference.' });
+    } finally {
+      setPreferenceSaving(false);
+    }
+  }, [loggingEnabled, onToggleLogging, user]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="app-shell px-4 py-6 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto space-y-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-blue-900 mb-2">Voice Finance Tracker</h1>
-          <p className="text-blue-700">Track your expenses with voice commands or manual entry</p>
+        <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="text-center md:text-left">
+            <h1 className="text-3xl font-bold text-blue-900 md:text-4xl">Voice Finance Tracker</h1>
+            <p className="mt-2 text-blue-700">Track your expenses with voice commands or manual entry</p>
+          </div>
+          <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center md:justify-end">
+            <div className="flex items-center gap-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-blue-900 shadow-sm">
+              <div className="text-left">
+                <p className="text-sm font-semibold">{displayName}</p>
+                {userEmail && <p className="text-xs text-blue-600">{userEmail}</p>}
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-800 transition hover:bg-blue-100"
+              >
+                Logout
+              </button>
+            </div>
+            <div className="rounded-2xl border border-blue-100 bg-white/80 px-4 py-3 text-blue-900 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">Voice command logging</p>
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handlePreferenceToggle}
+                  disabled={preferenceSaving}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                    loggingEnabled ? 'bg-blue-600 border-blue-600' : 'bg-gray-300 border-gray-300'
+                  } ${preferenceSaving ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
+                      loggingEnabled ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <div>
+                  <p className="text-sm font-semibold">
+                    {loggingEnabled ? 'Enabled' : 'Disabled'}
+                    {preferenceSaving && <span className="ml-2 text-xs font-normal text-blue-500">Saving...</span>}
+                  </p>
+                  <p className="text-xs text-blue-600">
+                    Store transcripts to debug misheard commands. Nothing is logged unless you opt in.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {error && (
@@ -721,10 +798,10 @@ const VoiceFinanceDashboard = () => {
         )}
 
         {/* Top Section: Microphone and Dropdowns */}
-        <div className="grid grid-cols-12 gap-6 mb-8">
+        <div className="grid gap-6 lg:grid-cols-12">
           {/* Microphone Section */}
-          <div className="col-span-5">
-            <div className="bg-white rounded-2xl shadow-lg p-8 h-full flex flex-col items-center justify-center border-2 border-blue-200">
+          <div className="col-span-12 lg:col-span-5">
+            <div className="app-card border-2 border-blue-200 p-6 sm:p-8 h-full flex flex-col items-center justify-center">
               <button
                 onClick={toggleRecording}
                 disabled={voiceProcessing || Boolean(voiceConfirm)}
@@ -740,7 +817,7 @@ const VoiceFinanceDashboard = () => {
               >
                 <Mic className="w-16 h-16 text-white" />
               </button>
-              <p className="mt-6 text-lg font-semibold text-blue-900">
+              <p className="mt-6 text-base font-semibold text-blue-900 sm:text-lg">
                 {voiceProcessing
                   ? 'Processing...'
                   : isRecording
@@ -754,9 +831,9 @@ const VoiceFinanceDashboard = () => {
           </div>
 
           {/* Dropdown Summaries */}
-          <div className="col-span-7 space-y-4">
+          <div className="col-span-12 space-y-4 lg:col-span-7">
             {/* Daily Total */}
-            <div className="bg-white rounded-xl shadow-md border-2 border-blue-200 overflow-hidden">
+            <div className="app-card border-2 border-blue-200 overflow-hidden">
               <button
                 onClick={() => toggleSection('daily')}
                 className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 transition-colors"
@@ -782,7 +859,7 @@ const VoiceFinanceDashboard = () => {
             </div>
 
             {/* Weekly Total */}
-            <div className="bg-white rounded-xl shadow-md border-2 border-blue-200 overflow-hidden">
+            <div className="app-card border-2 border-blue-200 overflow-hidden">
               <button
                 onClick={() => toggleSection('weeklyTotal')}
                 className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 transition-colors"
@@ -812,7 +889,7 @@ const VoiceFinanceDashboard = () => {
             </div>
 
             {/* Weekly Summary */}
-            <div className="bg-white rounded-xl shadow-md border-2 border-blue-200 overflow-hidden">
+            <div className="app-card border-2 border-blue-200 overflow-hidden">
               <button
                 onClick={() => toggleSection('weeklySummary')}
                 className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 transition-colors"
@@ -856,7 +933,7 @@ const VoiceFinanceDashboard = () => {
             </div>
 
             {/* Monthly Summary */}
-            <div className="bg-white rounded-xl shadow-md border-2 border-blue-200 overflow-hidden">
+            <div className="app-card border-2 border-blue-200 overflow-hidden">
               <button
                 onClick={() => toggleSection('monthlySummary')}
                 className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 transition-colors"
@@ -906,9 +983,9 @@ const VoiceFinanceDashboard = () => {
         </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-3 gap-6 mb-8">
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {/* Pie Chart - Category Distribution */}
-          <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-blue-200">
+          <div className="app-card border-2 border-blue-200 p-6">
             <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
               <PieChart className="w-5 h-5" />
               Category Distribution
@@ -969,7 +1046,7 @@ const VoiceFinanceDashboard = () => {
           </div>
 
           {/* Bar Chart - Daily Spending */}
-          <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-blue-200">
+          <div className="app-card border-2 border-blue-200 p-6">
             <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
               <BarChart3 className="w-5 h-5" />
               Last 7 Days Spending
@@ -1014,7 +1091,7 @@ const VoiceFinanceDashboard = () => {
           </div>
 
           {/* Bar Chart - Monthly Totals */}
-          <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-blue-200">
+          <div className="app-card border-2 border-blue-200 p-6">
             <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
               <BarChart3 className="w-5 h-5" />
               Monthly Totals (6 Months)
@@ -1053,12 +1130,12 @@ const VoiceFinanceDashboard = () => {
         </div>
 
         {/* Recent Expenses */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border-2 border-blue-200">
+        <div className="app-card p-6 border-2 border-blue-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold text-blue-900">Recent Expenses</h3>
             {loading && <span className="text-sm text-blue-600">Refreshing...</span>}
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b-2 border-blue-200">
@@ -1094,16 +1171,35 @@ const VoiceFinanceDashboard = () => {
               </tbody>
             </table>
           </div>
+          <div className="space-y-4 md:hidden">
+            {recentExpenses.length > 0 ? (
+              recentExpenses.map((expense) => (
+                <div key={`expense-card-${expense.id}`} className="border border-blue-100 rounded-xl p-4 bg-blue-50">
+                  <div className="flex items-center justify-between text-sm text-blue-800">
+                    <span>{expense.date || '—'}</span>
+                    <span>{expense.time || '—'}</span>
+                  </div>
+                  <p className="mt-2 text-lg font-semibold text-blue-900">{formatINR(expense.amount)}</p>
+                  <p className="text-sm text-blue-700">{expense.description || 'No description'}</p>
+                  <span className="inline-flex mt-3 px-3 py-1 bg-white text-blue-800 rounded-full text-xs font-semibold">
+                    {titleCase(expense.category)}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="text-blue-700">No expenses logged yet.</p>
+            )}
+          </div>
         </div>
 
         {/* Add Expense Manually */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border-2 border-blue-200">
+        <div className="app-card p-6 border-2 border-blue-200">
           <h3 className="text-xl font-bold text-blue-900 mb-4 flex items-center gap-2">
             <Plus className="w-6 h-6" />
             Add Expense Manually
           </h3>
-          <div className="flex gap-4 items-end flex-wrap">
-            <div className="flex-1 min-w-[200px]">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end">
+            <div className="flex-1 min-w-[200px] w-full">
               <label className="block text-sm font-semibold text-blue-900 mb-2">Amount (₹)</label>
               <input
                 type="number"
@@ -1113,7 +1209,7 @@ const VoiceFinanceDashboard = () => {
                 className="w-full px-4 py-3 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-500 text-blue-900"
               />
             </div>
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-[200px] w-full">
               <label className="block text-sm font-semibold text-blue-900 mb-2">Category</label>
               <select
                 value={newExpense.category}
@@ -1145,7 +1241,7 @@ const VoiceFinanceDashboard = () => {
         </div>
 
         {/* Category Summary */}
-        <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-blue-200">
+        <div className="app-card p-6 border-2 border-blue-200">
           <h3 className="text-xl font-bold text-blue-900 mb-6">Category Summary</h3>
           {categoryData.length > 0 ? (
             <div className="space-y-3">
@@ -1209,4 +1305,181 @@ const VoiceFinanceDashboard = () => {
   );
 };
 
-export default VoiceFinanceDashboard;
+const AuthScreen = () => {
+  const { login, register } = useAuth();
+  const [mode, setMode] = useState('login');
+  const [form, setForm] = useState({ email: '', password: '', name: '', confirmPassword: '' });
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError(null);
+    if (!form.email || !form.password) {
+      setError('Email and password are required.');
+      return;
+    }
+    if (mode === 'register' && form.password !== form.confirmPassword) {
+      setError('Passwords must match.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (mode === 'login') {
+        await login({ email: form.email, password: form.password });
+      } else {
+        await register({ email: form.email, password: form.password, name: form.name });
+      }
+    } catch (err) {
+      setError(err?.message || 'Authentication failed. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-blue-50 px-4 py-10">
+      <div className="mx-auto w-full max-w-md rounded-3xl border border-blue-100 bg-white p-8 shadow-2xl">
+        <div className="text-center space-y-1">
+          <h1 className="text-3xl font-bold text-blue-900">Voxly</h1>
+          <p className="text-sm text-blue-600">Your voice-powered finance tracker</p>
+        </div>
+        <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="space-y-1">
+            <label className="text-sm font-semibold text-blue-900" htmlFor="auth-email">
+              Email
+            </label>
+            <input
+              id="auth-email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className="w-full rounded-2xl border border-blue-200 px-4 py-3 text-blue-900 focus:border-blue-500 focus:outline-none"
+              placeholder="you@example.com"
+              value={form.email}
+              onChange={handleChange}
+            />
+          </div>
+          {mode === 'register' && (
+            <div className="space-y-1">
+              <label className="text-sm font-semibold text-blue-900" htmlFor="auth-name">
+                Display name
+              </label>
+              <input
+                id="auth-name"
+                name="name"
+                type="text"
+                className="w-full rounded-2xl border border-blue-200 px-4 py-3 text-blue-900 focus:border-blue-500 focus:outline-none"
+                placeholder="e.g. Priya"
+                value={form.name}
+                onChange={handleChange}
+              />
+            </div>
+          )}
+          <div className="space-y-1">
+            <label className="text-sm font-semibold text-blue-900" htmlFor="auth-password">
+              Password
+            </label>
+            <input
+              id="auth-password"
+              name="password"
+              type="password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              required
+              className="w-full rounded-2xl border border-blue-200 px-4 py-3 text-blue-900 focus:border-blue-500 focus:outline-none"
+              placeholder="Enter a strong password"
+              value={form.password}
+              onChange={handleChange}
+            />
+          </div>
+          {mode === 'register' && (
+            <div className="space-y-1">
+              <label className="text-sm font-semibold text-blue-900" htmlFor="auth-confirm">
+                Confirm password
+              </label>
+              <input
+                id="auth-confirm"
+                name="confirmPassword"
+                type="password"
+                required
+                className="w-full rounded-2xl border border-blue-200 px-4 py-3 text-blue-900 focus:border-blue-500 focus:outline-none"
+                placeholder="Re-enter your password"
+                value={form.confirmPassword}
+                onChange={handleChange}
+              />
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-center text-white font-semibold transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+          >
+            {submitting
+              ? 'Please wait...'
+              : mode === 'login'
+              ? 'Sign in'
+              : 'Create account'}
+          </button>
+        </form>
+        <p className="mt-6 text-center text-sm text-blue-700">
+          {mode === 'login' ? 'Need an account?' : 'Already have an account?'}{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setMode(mode === 'login' ? 'register' : 'login');
+              setError(null);
+            }}
+            className="font-semibold text-blue-900 hover:underline"
+          >
+            {mode === 'login' ? 'Create one' : 'Sign in'}
+          </button>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+const LoadingScreen = () => (
+  <div className="min-h-screen bg-blue-50 px-4 py-10">
+    <div className="mx-auto max-w-sm rounded-3xl border border-blue-100 bg-white p-6 text-center text-blue-900 shadow-xl">
+      Loading your workspace...
+    </div>
+  </div>
+);
+
+const ProtectedApp = () => {
+  const { user, initializing, logout, preferences, setLoggingPreference } = useAuth();
+  if (initializing) {
+    return <LoadingScreen />;
+  }
+  if (!user) {
+    return <AuthScreen />;
+  }
+  return (
+    <VoiceFinanceDashboard
+      user={user}
+      preferences={preferences}
+      onLogout={logout}
+      onToggleLogging={setLoggingPreference}
+    />
+  );
+};
+
+const App = () => (
+  <AuthProvider>
+    <ProtectedApp />
+  </AuthProvider>
+);
+
+export default App;

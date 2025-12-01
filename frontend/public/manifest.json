@@ -1,6 +1,10 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Voxly",
+  "name": "Voxly – Voice Finance Tracker",
+  "description": "Capture expenses with voice commands, see summaries, and stay on budget from any device.",
+  "categories": ["finance", "productivity", "lifestyle"],
+  "dir": "ltr",
+  "lang": "en",
   "icons": [
     {
       "src": "favicon.ico",
@@ -10,16 +14,35 @@
     {
       "src": "logo192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
       "src": "logo512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "theme_color": "#1e3a8a",
+  "background_color": "#f5f8ff",
+  "shortcuts": [
+    {
+      "name": "Add expense",
+      "short_name": "Add",
+      "description": "Jump straight to the add-expense form.",
+      "url": "/app#add-expense"
+    },
+    {
+      "name": "View summaries",
+      "short_name": "Summaries",
+      "description": "Open the weekly and monthly insights panels.",
+      "url": "/app#summaries"
+    }
+  ]
 }

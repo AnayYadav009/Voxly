@@ -15,10 +15,19 @@ def _fetch_single(query: str, params: Tuple = ()) -> float:
         log_error("Summary fetch error: %s", exc)
         raise
 
-def get_total_expenses() -> float:
-    return _fetch_single("SELECT COALESCE(SUM(amount), 0) FROM expenses")
+def get_total_expenses(user_id: Optional[str] = None) -> float:
+    query = "SELECT COALESCE(SUM(amount), 0) FROM expenses"
+    params: Tuple = ()
+    if user_id:
+        query += " WHERE user_id = ?"
+        params = (user_id,)
+    return _fetch_single(query, params)
 
-def get_monthly_total(year: Optional[int] = None, month: Optional[int] = None) -> float:
+def get_monthly_total(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    user_id: Optional[str] = None,
+) -> float:
     now = datetime.now()
     year = year or now.year
     month = month or now.month
@@ -27,16 +36,19 @@ def get_monthly_total(year: Optional[int] = None, month: Optional[int] = None) -
         end = datetime(year + 1, 1, 1)
     else:
         end = datetime(year, month + 1, 1)
-    return _fetch_single(
-        "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date >= ? AND date < ?",
-        (start.strftime(DATE_FORMAT), end.strftime(DATE_FORMAT)),
-    )
+    query = "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date >= ? AND date < ?"
+    params: List[str] = [start.strftime(DATE_FORMAT), end.strftime(DATE_FORMAT)]
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    return _fetch_single(query, tuple(params))
 
 def get_expenses_by_category(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     *,
     end_inclusive: bool = True,
+    user_id: Optional[str] = None,
 ) -> List[Dict[str, float]]:
     try:
         with create_connection() as conn:
@@ -49,6 +61,9 @@ def get_expenses_by_category(
                 comparator = "<=" if end_inclusive else "<"
                 conditions.append(f"date {comparator} ?")
                 params.append(end_date)
+            if user_id:
+                conditions.append("user_id = ?")
+                params.append(user_id)
 
             where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             query = f"""
@@ -64,33 +79,39 @@ def get_expenses_by_category(
         log_error("Category breakdown error: %s", exc)
         raise
 
-def get_daily_totals(days: int = 7) -> List[Dict[str, float]]:
+def get_daily_totals(days: int = 7, user_id: Optional[str] = None) -> List[Dict[str, float]]:
     start = datetime.now() - timedelta(days=days - 1)
     try:
         with create_connection() as conn:
-            cur = conn.execute(
+            query = (
                 """
                 SELECT date, COALESCE(SUM(amount), 0) AS total
                 FROM expenses
                 WHERE date >= ?
+                {user_filter}
                 GROUP BY date
                 ORDER BY date
-                """,
-                (start.strftime(DATE_FORMAT),),
+                """
             )
+            params: List[str] = [start.strftime(DATE_FORMAT)]
+            user_filter = ""
+            if user_id:
+                user_filter = "AND user_id = ?"
+                params.append(user_id)
+            cur = conn.execute(query.format(user_filter=user_filter), params)
             return [dict(row) for row in cur.fetchall()]
     except sqlite3.Error as exc:
         log_error("Daily totals error: %s", exc)
         raise
 
-def get_weekly_summary_text() -> str:
-    totals = get_daily_totals(days=7)
+def get_weekly_summary_text(user_id: Optional[str] = None) -> str:
+    totals = get_daily_totals(days=7, user_id=user_id)
     total_amount = sum(row["total"] for row in totals)
     avg = total_amount / 7 if totals else 0
     today = datetime.now()
     start = (today - timedelta(days=6)).strftime(DATE_FORMAT)
     end = today.strftime(DATE_FORMAT)
-    top_categories = get_expenses_by_category(start, end)[:3]
+    top_categories = get_expenses_by_category(start, end, user_id=user_id)[:3]
     lines = [
         f"Weekly spend: ₹{total_amount:.2f}",
         f"Daily average: ₹{avg:.2f}",
@@ -117,9 +138,9 @@ def get_weekly_summary_text() -> str:
                 )
     return "\n".join(lines)
 
-def get_monthly_summary_text() -> str:
+def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
     now = datetime.now()
-    total = get_monthly_total(now.year, now.month)
+    total = get_monthly_total(now.year, now.month, user_id=user_id)
     start = datetime(now.year, now.month, 1)
     if now.month == 12:
         next_month = datetime(now.year + 1, 1, 1)
@@ -129,6 +150,7 @@ def get_monthly_summary_text() -> str:
         start.strftime(DATE_FORMAT),
         next_month.strftime(DATE_FORMAT),
         end_inclusive=False,
+        user_id=user_id,
     )
     lines = [f"{now.strftime('%B %Y')} total: ₹{total:.2f}"]
     days_elapsed = max((now.date() - start.date()).days + 1, 1)
@@ -140,16 +162,22 @@ def get_monthly_summary_text() -> str:
     daily_rows: List[Dict[str, float]] = []
     try:
         with create_connection() as conn:
-            cur = conn.execute(
+            query = (
                 """
                 SELECT date, COALESCE(SUM(amount), 0) AS total
                 FROM expenses
                 WHERE date >= ? AND date < ?
+                {user_filter}
                 GROUP BY date
                 ORDER BY date
-                """,
-                (start.strftime(DATE_FORMAT), next_month.strftime(DATE_FORMAT)),
+                """
             )
+            params: List[str] = [start.strftime(DATE_FORMAT), next_month.strftime(DATE_FORMAT)]
+            user_filter = ""
+            if user_id:
+                user_filter = "AND user_id = ?"
+                params.append(user_id)
+            cur = conn.execute(query.format(user_filter=user_filter), params)
             daily_rows = [dict(row) for row in cur.fetchall()]
     except sqlite3.Error as exc:
         log_error("Monthly daily totals error: %s", exc)
@@ -166,7 +194,7 @@ def get_monthly_summary_text() -> str:
     if prev_month == 0:
         prev_month = 12
         prev_year -= 1
-    prev_total = get_monthly_total(prev_year, prev_month)
+    prev_total = get_monthly_total(prev_year, prev_month, user_id=user_id)
     if prev_total > 0:
         diff = total - prev_total
         direction = "higher" if diff >= 0 else "lower"

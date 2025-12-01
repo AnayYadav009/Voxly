@@ -177,14 +177,18 @@ def _assess_single_budget(spent: float, limit: BudgetLimit) -> BudgetStatus:
         message=message,
     )
 
-def evaluate_monthly_budgets(year: Optional[int] = None, month: Optional[int] = None) -> List[BudgetStatus]:
+def evaluate_monthly_budgets(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    user_id: Optional[str] = None,
+) -> List[BudgetStatus]:
     now = datetime.now()
     year = year or now.year
     month = month or now.month
     limits = get_budget_limits()
     if not limits:
         return []
-    totals = get_monthly_totals_by_category(year=year, month=month)
+    totals = get_monthly_totals_by_category(year=year, month=month, user_id=user_id)
     spending = {row["category"].lower(): float(row["total"]) for row in totals}
     results: List[BudgetStatus] = []
     for category, limit in limits.items():
@@ -192,13 +196,18 @@ def evaluate_monthly_budgets(year: Optional[int] = None, month: Optional[int] = 
         results.append(_assess_single_budget(spent, limit))
     return results
 
-def get_alert_for_category(category: str, year: Optional[int] = None, month: Optional[int] = None) -> Optional[BudgetStatus]:
+def get_alert_for_category(
+    category: str,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    user_id: Optional[str] = None,
+) -> Optional[BudgetStatus]:
     category_key = category.lower()
     limits = get_budget_limits()
     limit = limits.get(category_key)
     if not limit:
         return None
-    statuses = evaluate_monthly_budgets(year=year, month=month)
+    statuses = evaluate_monthly_budgets(year=year, month=month, user_id=user_id)
     for status in statuses:
         if status.category == category_key and status.level in {"warning", "critical"}:
             return status
