@@ -1,3 +1,4 @@
+import warnings
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -60,6 +61,12 @@ def _speak_recent(items: List[dict]) -> None:
 
 
 def main() -> None:
+    warnings.warn(
+        "The CLI entry point (main.py) is deprecated and does not support "
+        "multi-user authentication. Use the Flask API (app.py) instead.",
+        DeprecationWarning,
+        stacklevel=1,
+    )
     create_table()
 
     speak("Voice tracker ready. Say a command or stop to quit.")

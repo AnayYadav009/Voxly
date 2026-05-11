@@ -9,6 +9,11 @@ from config import BUDGETS_FILE, DEFAULT_BUDGET_WARN_THRESHOLD
 from database import get_monthly_totals_by_category
 from logger import log_error, log_info
 
+# WARNING: Budget limits are currently stored in a single JSON file shared
+# across ALL users. In a multi-user setup, one user's budget changes affect
+# everyone. A future migration should move budgets into the SQLite database
+# with a user_id column. See PHASE2_PLAN.md for details.
+
 @dataclass
 class BudgetLimit:
     category: str

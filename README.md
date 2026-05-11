@@ -110,4 +110,4 @@ tests/                # Pytest integration suite
 ---
 
 ## License
-MIT © 2025
+MIT © 2025–2026

@@ -1,7 +1,7 @@
 import json
 import os
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from uuid import uuid4
 
@@ -52,7 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_command_logs_user_created ON command_logs(user_id
 """
 
 def _current_timestamp() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def _ensure_expense_user_column(conn: sqlite3.Connection) -> None:
     try:

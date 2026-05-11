@@ -58,12 +58,24 @@ from visual_module import (
     get_recent_daily_totals,
 )
 from logger import log_error, log_info
-parse_expense = None
-last_performed_command: Optional[Dict[str, Any]] = None
+from voice_module import parse_expense
+
+# Per-user storage for the "repeat last command" feature.
+# Keyed by user_id so concurrent users cannot leak commands to each other.
+_last_commands: Dict[str, Dict[str, Any]] = {}
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 CORS(app)  # allow frontend dev server to reach the API
 ensure_chart_dir()  # make sure chart directory exists at startup
+
+_MAX_CATEGORY_LENGTH = 50
+
+def _sanitize_category(raw: str) -> str:
+    """Normalize and validate a category string."""
+    cleaned = (raw or "").strip().lower()
+    if not cleaned:
+        return "uncategorized"
+    return cleaned[:_MAX_CATEGORY_LENGTH]
 
 VOICE_HELP_TEXT = (
     "Try commands like:\n"
@@ -232,7 +244,7 @@ def _safe_limit(value: Any, default: int = 5, *, minimum: int = 1, maximum: int 
     return max(minimum, min(numeric, maximum))
 
 def _build_dashboard_context(user_id: Optional[str] = None):
-    charts = generate_all_charts() if user_id is None else {}
+    charts = generate_all_charts(user_id=user_id)
     budget_statuses = evaluate_monthly_budgets(user_id=user_id)
     return {
         "total_today": get_total_today(user_id=user_id),
@@ -306,11 +318,10 @@ def api_summary():
 @app.route("/api/recent")
 def api_recent():
     user = _require_authenticated_user()
-    if not user and not app.testing:
+    if not user:
         return _unauthorized_response()
-    user_id = user["id"] if user else None
     limit = _safe_limit(request.args.get("limit"), default=5)
-    return jsonify(get_recent_expenses(limit, user_id=user_id))
+    return jsonify(get_recent_expenses(limit, user_id=user["id"]))
 
 @app.route("/api/charts/category-breakdown")
 def api_chart_category_breakdown():
@@ -476,7 +487,7 @@ def api_add():
     data = request.get_json(silent=True) or {}
     try:
         amount = float(data.get("amount", 0))
-        category = str(data.get("category", "")).strip()
+        category = _sanitize_category(data.get("category", ""))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid amount or category."}), 400
 
@@ -597,19 +608,15 @@ def _summarize_chart_series(series: Dict[str, Any]) -> str:
 @app.route("/api/voice_command", methods=["POST"])
 def api_voice_command():
     user = _require_authenticated_user()
-    if not user and not app.testing:
+    if not user:
         return _unauthorized_response()
     payload: Dict[str, Any] = request.get_json(silent=True) or {}
     command_text = str(payload.get("command", "")).strip()
     if not command_text:
         return jsonify({"error": "Command text required."}), 400
-    user_id = user["id"] if user else None
+    user_id = user["id"]
 
     try:
-        global parse_expense  # type: ignore
-        if parse_expense is None:
-            from voice_module import parse_expense as _parse_fn  # local import
-            parse_expense = _parse_fn  # cache for subsequent calls
         parsed = parse_expense(command_text)
     except Exception as exc:
         log_error("Failed to parse voice command: %s", exc)
@@ -648,15 +655,13 @@ def api_voice_command():
         return jsonify(response)
 
     if action == "repeat":
-        # If the client asks to repeat, re-run the previously performed
-        # command (if any). This keeps the web assistant stateless while
-        # allowing a simple repeat feature.
-        global last_performed_command
-        if not last_performed_command:
+        # Re-run the previously performed command for this user (if any).
+        prev = _last_commands.get(user_id)
+        if not prev:
             response["reply"] = "No previous command available to repeat."
             return jsonify(response)
         # overwrite parsed/action with the last performed command and continue
-        parsed = last_performed_command.copy()
+        parsed = prev.copy()
         action = parsed.get("action", "unknown")
 
     if action == "exit":
@@ -665,7 +670,7 @@ def api_voice_command():
 
     if action == "add":
         amount = parsed.get("amount")
-        category = parsed.get("category") or "uncategorized"
+        category = _sanitize_category(parsed.get("category") or "uncategorized")
         if amount is None or float(amount) <= 0:
             response["reply"] = "Please include a valid amount to add an expense."
             return jsonify(response), 400
@@ -682,7 +687,7 @@ def api_voice_command():
             dashboard = _refresh_dashboard(user_id=user_id)
             response["dashboard"] = dashboard
             # record this as the last performed command for repeat
-            last_performed_command = parsed.copy()
+            _last_commands[user_id] = parsed.copy()
 
             alert_year = alert_month = None
             if parsed.get("date"):
@@ -713,14 +718,14 @@ def api_voice_command():
         response["reply"] = f"Deleted expense number {removed_id}."
         response["deleted_expense_id"] = removed_id
         response["dashboard"] = _refresh_dashboard(user_id=user_id)
-        last_performed_command = parsed.copy()
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "balance":
         total_today = get_total_today(user_id=user_id)
         response["reply"] = f"Today's total spend is ₹{total_today:.2f}."
         response["total_today"] = total_today
-        last_performed_command = parsed.copy()
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "recent":
@@ -728,13 +733,13 @@ def api_voice_command():
         recent_items = get_recent_expenses(limit, user_id=user_id)
         response["reply"] = "Here are the most recent expenses."
         response["recent_expenses"] = recent_items
-        last_performed_command = parsed.copy()
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "weekly":
         summary_text = get_weekly_summary_text(user_id=user_id)
         response["reply"] = summary_text
-        last_performed_command = parsed.copy()
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "monthly":
@@ -747,7 +752,7 @@ def api_voice_command():
             response["budget_statuses"] = _serialize_budget_status(statuses)
             response["budget_lines"] = lines
         response["reply"] = summary_text
-        last_performed_command = parsed.copy()
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "show_budgets":
@@ -784,8 +789,8 @@ def api_voice_command():
                 response["budget_lines"] = lines
             else:
                 response["reply"] = "No budgets configured."
-            # record command when showing a specific category or full list
-            last_performed_command = parsed.copy()
+        # record command for repeat — applies to both specific-category and full-list
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "set_budget":
@@ -845,7 +850,7 @@ def api_voice_command():
             }
         if warn_ratio is not None:
             response["warn_ratio"] = warn_ratio
-        last_performed_command = parsed.copy()
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "remove_budget":
@@ -878,7 +883,7 @@ def api_voice_command():
             response["budget_statuses"] = _serialize_budget_status(statuses)
             response["budget_lines"] = lines
         response["removed_budget"] = category.lower()
-        last_performed_command = parsed.copy()
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "chart_summary":
@@ -892,7 +897,7 @@ def api_voice_command():
         response["reply"] = _summarize_chart_series(series)
         # include speak field so frontends can optionally play this text-to-speech
         response["speak"] = response["reply"]
-        last_performed_command = parsed.copy()
+        _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     response["reply"] = "That command is not supported yet."

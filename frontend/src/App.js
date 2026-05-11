@@ -573,12 +573,7 @@ const VoiceFinanceDashboard = ({
         try {
           recognition.start();
         } catch (err) {
-          // fallback: try to start immediately (some browsers require immediate user gesture)
-          try {
-            recognition.start();
-          } catch (e) {
-            setVoiceStatus('Unable to access the microphone. Please allow access and try again.');
-          }
+          setVoiceStatus('Unable to access the microphone. Please allow access and try again.');
         }
       })
       .catch(() => {
@@ -1054,7 +1049,8 @@ const VoiceFinanceDashboard = ({
             <div className="h-64 flex items-end justify-around gap-1 px-4">
               {dailySpending.map((day, idx) => {
                 const height = maxDaily ? (day.amount / maxDaily) * 100 : 0;
-                const isOverBudget = day.amount > 1500;
+                const avgDailyBudget = Object.values(BUDGET_GUESSES).reduce((a, b) => a + b, 0) / 30;
+                const isOverBudget = day.amount > avgDailyBudget;
                 return (
                   <div key={`daily-${idx}`} className="flex flex-col items-center">
                     <div className="flex flex-col items-center justify-end h-52">

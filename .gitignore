@@ -2,17 +2,11 @@
 __pycache__/
 *.pyc
 
-# Database and Environment
+# Database
 expenses.db
-# Python Caching
-__pycache__/
-*.pyc
 
-# Database and Environment
-expenses.db
+# Virtual environments
 venv/
-
-# Optional virtual env variations
 .venv/
 
 # Logs
@@ -26,9 +20,6 @@ frontend/build/
 
 # Frontend dependencies
 frontend/node_modules/
-
-# Local SQLite DB
-expenses.db
 
 # VS Code workspace settings (optional)
 .vscode/
@@ -46,6 +37,7 @@ Thumbs.db
 # Environment files
 .env
 .env.*
+!.env.example
 
 # Python packaging / caches
 .mypy_cache/
