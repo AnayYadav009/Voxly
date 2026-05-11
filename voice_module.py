@@ -1,3 +1,5 @@
+"""Database and schema management module."""
+
 import os
 import random
 import re
@@ -13,6 +15,7 @@ try:
 except Exception:
     dateparser = None  # type: ignore
     def search_dates(*args, **kwargs):  # fallback stub
+        """Search dates."""
         return None
     _HAS_DATEPARSER = False
 from word2number import w2n
@@ -508,6 +511,7 @@ _TONE_RESPONSES = {
 last_transcript: Optional[str] = None
 
 def speak(text: str, tone: str = "neutral") -> None:
+    """Speak."""
     if not text:
         return
     tone = tone or "neutral"
@@ -526,6 +530,7 @@ def speak(text: str, tone: str = "neutral") -> None:
         time.sleep(0.4)
 
 def respond(action: str, message: str) -> None:
+    """Respond."""
     tone_map = {
         "add": "success",
         "balance": "info",
@@ -556,6 +561,7 @@ def get_voice_input(
     language: str = "en-IN",
     retries: int = 1,
 ) -> str:
+    """Get voice input."""
     global last_transcript
     attempt = 0
     while attempt <= retries:
@@ -606,6 +612,7 @@ def get_voice_input(
     return ""
 
 def parse_expense(text: str) -> Dict[str, Any]:
+    """Parse expense."""
     if not text or not text.strip():
         return {"action": "none"}
 
@@ -663,6 +670,7 @@ def confirm_amount_flow(
     prompt_text: str = "Please say the amount now.",
     retries: int = 2,
 ) -> Optional[float]:
+    """Confirm amount flow."""
     speak(prompt_text)
     for _ in range(retries):
         follow_up = get_voice_input(duration=4)
@@ -678,4 +686,5 @@ def confirm_amount_flow(
     return None
 
 def repeat_last_transcript() -> Optional[str]:
+    """Repeat last transcript."""
     return last_transcript

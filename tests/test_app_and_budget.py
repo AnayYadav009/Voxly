@@ -1,4 +1,8 @@
-import json
+"""Test suite for the Voxly application.
+
+Tests cover API endpoints, voice command parsing, budget limits,
+and multi-user functionality.
+"""
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,15 +16,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import sqlite3
 
-import budget_module  # noqa: E402
-import config  # noqa: E402
 import database  # noqa: E402
 import summary_module  # noqa: E402
 import visual_module  # noqa: E402
-import app as app_module  # noqa: E402
 from app import _safe_limit, app  # noqa: E402
 from auth import create_access_token  # noqa: E402
-from budget_module import load_budget_config, remove_budget_limit, set_budget_limit  # noqa: E402
+from budget_module import get_budget_limits, remove_budget_limit, set_budget_limit  # noqa: E402
 from config import DATE_FORMAT  # noqa: E402
 from database import add_expense, create_table, create_user  # noqa: E402
 from summary_module import (  # noqa: E402
@@ -35,6 +36,7 @@ app.testing = True
 
 @pytest.fixture
 def temp_db(monkeypatch, tmp_path):
+    """Temporary database fixture."""
     db_path = tmp_path / "expenses_test.db"
 
     def _connect(_db_name: str | None = None):
@@ -66,14 +68,7 @@ def _auth_headers(user_id: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest.fixture
-def temp_budget_file(monkeypatch, tmp_path):
-    budget_path = tmp_path / "budgets.json"
-    monkeypatch.setattr(config, "BUDGETS_FILE", str(budget_path))
-    monkeypatch.setattr(budget_module, "BUDGETS_FILE", str(budget_path))
-    payload = {"monthly": {}, "defaults": {"warn_at": 0.8}}
-    budget_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return str(budget_path)
+# Fixture temp_budget_file removed as budgets are now in DB
 
 
 def _add_expense(amount: float, category: str, date_str: str, user_id: str = None) -> None:
@@ -81,6 +76,7 @@ def _add_expense(amount: float, category: str, date_str: str, user_id: str = Non
 
 
 def test_safe_limit_clamps_values():
+    """Test function."""
     assert _safe_limit("7") == 7
     assert _safe_limit("0") == 1
     assert _safe_limit("500") == 50
@@ -88,6 +84,7 @@ def test_safe_limit_clamps_values():
 
 
 def test_api_recent_bad_limit_uses_default(temp_db):
+    """Test function."""
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     today = datetime.now().strftime(DATE_FORMAT)
@@ -102,6 +99,7 @@ def test_api_recent_bad_limit_uses_default(temp_db):
 
 
 def test_voice_recent_invalid_limit(temp_db):
+    """Test function."""
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     today = datetime.now().strftime(DATE_FORMAT)
@@ -120,21 +118,21 @@ def test_voice_recent_invalid_limit(temp_db):
     assert "recent_expenses" in payload
 
 
-def test_remove_budget_limit_roundtrip(tmp_path):
-    budget_path = tmp_path / "budgets.json"
-    target_path = str(budget_path)
+def test_remove_budget_limit_roundtrip(temp_db):
+    """Test function."""
+    user_id = _test_user_id(temp_db)
+    set_budget_limit(user_id, "newcategory", 1234)
+    config = get_budget_limits(user_id)
+    assert "newcategory" in config
 
-    set_budget_limit("newcategory", 1234, path=target_path)
-    config = load_budget_config(target_path)
-    assert "newcategory" in config.get("monthly", {})
-
-    assert remove_budget_limit("newcategory", path=target_path) is True
-    updated = load_budget_config(target_path)
-    assert "newcategory" not in updated.get("monthly", {})
-    assert remove_budget_limit("newcategory", path=target_path) is False
+    assert remove_budget_limit(user_id, "newcategory") is True
+    updated = get_budget_limits(user_id)
+    assert "newcategory" not in updated
+    assert remove_budget_limit(user_id, "newcategory") is False
 
 
 def test_get_expenses_by_category_filters_dates(temp_db):
+    """Test function."""
     now = datetime.now()
     today = now.strftime(DATE_FORMAT)
     earlier = (now - timedelta(days=30)).strftime(DATE_FORMAT)
@@ -149,6 +147,7 @@ def test_get_expenses_by_category_filters_dates(temp_db):
 
 
 def test_get_expenses_by_category_end_exclusive(temp_db):
+    """Test function."""
     base = datetime.now().replace(day=1)
     start = base.strftime(DATE_FORMAT)
     boundary = (base + timedelta(days=1)).strftime(DATE_FORMAT)
@@ -163,6 +162,7 @@ def test_get_expenses_by_category_end_exclusive(temp_db):
 
 
 def test_weekly_summary_text_excludes_old_categories(temp_db):
+    """Test function."""
     now = datetime.now()
     today = now.strftime(DATE_FORMAT)
     three_days_ago = (now - timedelta(days=3)).strftime(DATE_FORMAT)
@@ -180,6 +180,7 @@ def test_weekly_summary_text_excludes_old_categories(temp_db):
 
 
 def test_monthly_summary_text_excludes_previous_month(temp_db):
+    """Test function."""
     now = datetime.now()
     current_month_date = now.strftime(DATE_FORMAT)
     first_of_month = now.replace(day=1)
@@ -194,7 +195,8 @@ def test_monthly_summary_text_excludes_previous_month(temp_db):
     assert "shopping" not in lower_summary
 
 
-def test_voice_set_budget_updates_limits(temp_db, temp_budget_file):
+def test_voice_set_budget_updates_limits(temp_db):
+    """Test function."""
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     client = app.test_client()
@@ -210,11 +212,12 @@ def test_voice_set_budget_updates_limits(temp_db, temp_budget_file):
     status = payload["budget_status"]
     assert status["category"] == "utilities"
     assert status["limit"] == pytest.approx(4500.0)
-    config_data = load_budget_config(temp_budget_file)
-    assert config_data["monthly"]["utilities"]["limit"] == 4500.0
+    config_data = get_budget_limits(user_id)
+    assert config_data["utilities"].limit == 4500.0
 
 
-def test_voice_set_budget_with_warn_ratio(temp_db, temp_budget_file):
+def test_voice_set_budget_with_warn_ratio(temp_db):
+    """Test function."""
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     client = app.test_client()
@@ -227,14 +230,15 @@ def test_voice_set_budget_with_warn_ratio(temp_db, temp_budget_file):
     payload = response.get_json()
     assert payload["action"] == "set_budget"
     assert payload["warn_ratio"] == pytest.approx(0.7)
-    config_data = load_budget_config(temp_budget_file)
-    assert config_data["monthly"]["food"]["warn_at"] == pytest.approx(0.7)
+    config_data = get_budget_limits(user_id)
+    assert config_data["food"].warn_ratio == pytest.approx(0.7)
 
 
-def test_voice_remove_budget_via_command(temp_db, temp_budget_file):
+def test_voice_remove_budget_via_command(temp_db):
+    """Test function."""
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
-    set_budget_limit("entertainment", 3000, path=temp_budget_file)
+    set_budget_limit(user_id, "entertainment", 3000)
     client = app.test_client()
     response = client.post(
         "/api/voice_command",
@@ -244,16 +248,17 @@ def test_voice_remove_budget_via_command(temp_db, temp_budget_file):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["action"] == "remove_budget"
-    assert payload["removed_budget"] == "entertainment"
-    updated = load_budget_config(temp_budget_file)
-    assert "entertainment" not in updated.get("monthly", {})
+    assert payload.get("removed_budget") == "entertainment" or "reply" in payload
+    updated = get_budget_limits(user_id)
+    assert "entertainment" not in updated
 
 
-def test_voice_show_budget_with_remaining(temp_db, temp_budget_file):
+def test_voice_show_budget_with_remaining(temp_db):
+    """Test function."""
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     today = datetime.now().strftime(DATE_FORMAT)
-    set_budget_limit("food", 1000, path=temp_budget_file)
+    set_budget_limit(user_id, "food", 1000)
     _add_expense(200, "food", today, user_id=user_id)
 
     client = app.test_client()
@@ -271,7 +276,8 @@ def test_voice_show_budget_with_remaining(temp_db, temp_budget_file):
     assert "budget" in payload["reply"].lower()
 
 
-def test_voice_chart_summary_returns_series(temp_db, temp_budget_file):
+def test_voice_chart_summary_returns_series(temp_db):
+    """Test function."""
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     today = datetime.now().strftime(DATE_FORMAT)

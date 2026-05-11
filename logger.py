@@ -1,3 +1,8 @@
+"""Logging configuration module.
+
+Provides a unified logger with both file and console handlers, ensuring UTF-8
+encoding is strictly followed for terminal output.
+"""
 import logging
 import os
 from logging.handlers import RotatingFileHandler
@@ -6,7 +11,10 @@ from config import LOG_FILE, LOG_DIR
 
 
 class Utf8StreamHandler(logging.StreamHandler):
+    """A stream handler that falls back to encoding replacement on Unicode errors."""
+    
     def emit(self, record: logging.LogRecord) -> None:
+        """Emit a log record, handling encoding errors safely."""
         try:
             msg = self.format(record)
             stream = self.stream
@@ -44,8 +52,24 @@ if not logger.handlers:
 
 
 def log_info(message: str, *args: Any, **kwargs: Any) -> None:
+    """Log an informational message.
+    
+    Args:
+        message: The log message.
+        *args: Positional arguments for message formatting.
+        **kwargs: Keyword arguments passed to the logger.
+
+    """
     logger.info(message, *args, **kwargs)
 
 
 def log_error(message: str, *args: Any, **kwargs: Any) -> None:
+    """Log an error message.
+    
+    Args:
+        message: The log message.
+        *args: Positional arguments for message formatting.
+        **kwargs: Keyword arguments passed to the logger.
+
+    """
     logger.error(message, *args, **kwargs)

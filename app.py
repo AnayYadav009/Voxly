@@ -1,3 +1,5 @@
+"""Database and schema management module."""
+
 import os
 import sqlite3
 from dataclasses import asdict
@@ -35,7 +37,6 @@ from database import (
     add_expense,
     create_user,
     delete_last_expense,
-    get_user_preferences,
     get_recent_expenses,
     get_total_by_category,
     get_total_today,
@@ -44,6 +45,8 @@ from database import (
     log_command_event,
     touch_user_timestamp,
     update_user_log_opt_in,
+    get_last_command,
+    set_last_command,
 )
 from summary_module import (
     get_monthly_summary_text,
@@ -59,10 +62,6 @@ from visual_module import (
 )
 from logger import log_error, log_info
 from voice_module import parse_expense
-
-# Per-user storage for the "repeat last command" feature.
-# Keyed by user_id so concurrent users cannot leak commands to each other.
-_last_commands: Dict[str, Dict[str, Any]] = {}
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 CORS(app)  # allow frontend dev server to reach the API
@@ -139,6 +138,7 @@ def _should_log_commands(user: Optional[Dict[str, Any]]) -> bool:
 
 @app.before_request
 def attach_current_user() -> None:
+    """Attach current user."""
     g.current_user = None
     token = _extract_bearer_token()
     if not token:
@@ -245,7 +245,7 @@ def _safe_limit(value: Any, default: int = 5, *, minimum: int = 1, maximum: int 
 
 def _build_dashboard_context(user_id: Optional[str] = None):
     charts = generate_all_charts(user_id=user_id)
-    budget_statuses = evaluate_monthly_budgets(user_id=user_id)
+    budget_statuses = evaluate_monthly_budgets(user_id=user_id) if user_id else []
     return {
         "total_today": get_total_today(user_id=user_id),
         "monthly_total": get_monthly_total(user_id=user_id),
@@ -275,6 +275,7 @@ def _build_dashboard_context(user_id: Optional[str] = None):
 
 @app.route("/")
 def index():
+    """Index."""
     response = _serve_react_asset()
     if response is not None:
         return response
@@ -288,6 +289,7 @@ def index():
 @app.route("/app", defaults={"path": ""})
 @app.route("/app/<path:path>")
 def serve_react_app(path: str):
+    """Serve react app."""
     response = _serve_react_asset(path)
     if response is not None:
         return response
@@ -303,6 +305,7 @@ def serve_react_app(path: str):
 
 @app.route("/api/summary")
 def api_summary():
+    """Handle API summary."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -317,6 +320,7 @@ def api_summary():
 
 @app.route("/api/recent")
 def api_recent():
+    """Handle API recent."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -325,6 +329,7 @@ def api_recent():
 
 @app.route("/api/charts/category-breakdown")
 def api_chart_category_breakdown():
+    """Handle API chart category breakdown."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -335,6 +340,7 @@ def api_chart_category_breakdown():
 
 @app.route("/api/charts/daily-totals")
 def api_chart_daily_totals():
+    """Handle API chart daily totals."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -351,6 +357,7 @@ def api_chart_daily_totals():
 
 @app.route("/api/charts/monthly-totals")
 def api_chart_monthly_totals():
+    """Handle API chart monthly totals."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -367,6 +374,7 @@ def api_chart_monthly_totals():
 
 @app.route("/api/auth/register", methods=["POST"])
 def api_auth_register():
+    """Handle API auth register."""
     data = request.get_json(silent=True) or {}
     email = _normalize_email(data.get("email", ""))
     password = str(data.get("password", ""))
@@ -391,6 +399,7 @@ def api_auth_register():
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_auth_login():
+    """Handle API auth login."""
     data = request.get_json(silent=True) or {}
     email = _normalize_email(data.get("email", ""))
     password = str(data.get("password", ""))
@@ -406,6 +415,7 @@ def api_auth_login():
 
 @app.route("/api/auth/me")
 def api_auth_me():
+    """Handle API auth me."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -414,6 +424,7 @@ def api_auth_me():
 
 @app.route("/api/preferences", methods=["GET", "PUT"])
 def api_preferences():
+    """Handle API preferences."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -437,6 +448,7 @@ def api_preferences():
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_auth_logout():
+    """Handle API auth logout."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -446,6 +458,7 @@ def api_auth_logout():
 
 @app.route("/api/auth/refresh", methods=["POST"])
 def api_auth_refresh():
+    """Handle API auth refresh."""
     data = request.get_json(silent=True) or {}
     refresh_token = data.get("refresh_token") or _extract_bearer_token()
     user_id = decode_refresh_token(refresh_token)
@@ -467,6 +480,7 @@ def api_auth_refresh():
 
 @app.route("/api/regenerate-charts", methods=["POST"])
 def api_regenerate_charts():
+    """Handle API regenerate charts."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -481,6 +495,7 @@ def api_regenerate_charts():
 
 @app.route("/api/add", methods=["POST"])
 def api_add():
+    """Handle API add."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -607,6 +622,7 @@ def _summarize_chart_series(series: Dict[str, Any]) -> str:
 
 @app.route("/api/voice_command", methods=["POST"])
 def api_voice_command():
+    """Handle API voice command."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
@@ -656,7 +672,7 @@ def api_voice_command():
 
     if action == "repeat":
         # Re-run the previously performed command for this user (if any).
-        prev = _last_commands.get(user_id)
+        prev = get_last_command(user_id)
         if not prev:
             response["reply"] = "No previous command available to repeat."
             return jsonify(response)
@@ -687,7 +703,7 @@ def api_voice_command():
             dashboard = _refresh_dashboard(user_id=user_id)
             response["dashboard"] = dashboard
             # record this as the last performed command for repeat
-            _last_commands[user_id] = parsed.copy()
+            set_last_command(user_id, parsed.copy())
 
             alert_year = alert_month = None
             if parsed.get("date"):
@@ -696,7 +712,7 @@ def api_voice_command():
                     alert_year, alert_month = parsed_date.year, parsed_date.month
                 except ValueError:
                     pass
-            status = get_alert_for_category(category, year=alert_year, month=alert_month, user_id=user_id)
+            status = get_alert_for_category(category, user_id=user_id, year=alert_year, month=alert_month)
             if status:
                 response["budget_alert"] = status.message
         except Exception as exc:
@@ -718,14 +734,14 @@ def api_voice_command():
         response["reply"] = f"Deleted expense number {removed_id}."
         response["deleted_expense_id"] = removed_id
         response["dashboard"] = _refresh_dashboard(user_id=user_id)
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     if action == "balance":
         total_today = get_total_today(user_id=user_id)
         response["reply"] = f"Today's total spend is ₹{total_today:.2f}."
         response["total_today"] = total_today
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     if action == "recent":
@@ -733,31 +749,31 @@ def api_voice_command():
         recent_items = get_recent_expenses(limit, user_id=user_id)
         response["reply"] = "Here are the most recent expenses."
         response["recent_expenses"] = recent_items
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     if action == "weekly":
         summary_text = get_weekly_summary_text(user_id=user_id)
         response["reply"] = summary_text
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     if action == "monthly":
         summary_text = get_monthly_summary_text(user_id=user_id)
         statuses = evaluate_monthly_budgets(user_id=user_id)
-        limits = get_budget_limits()
+        limits = get_budget_limits(user_id)
         if statuses:
             lines = _collect_budget_lines(statuses, limits)
             summary_text = summary_text + "\n" + "\n".join(lines)
             response["budget_statuses"] = _serialize_budget_status(statuses)
             response["budget_lines"] = lines
         response["reply"] = summary_text
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     if action == "show_budgets":
         category = parsed.get("category")
-        limits = get_budget_limits()
+        limits = get_budget_limits(user_id)
         statuses = evaluate_monthly_budgets(user_id=user_id)
         if category:
             status = _find_budget_status(category, statuses)
@@ -790,7 +806,7 @@ def api_voice_command():
             else:
                 response["reply"] = "No budgets configured."
         # record command for repeat — applies to both specific-category and full-list
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     if action == "set_budget":
@@ -808,9 +824,10 @@ def api_voice_command():
             response["reply"] = "Please provide a positive budget amount."
             return jsonify(response), 400
         try:
-            set_budget_limit(category, limit_value, warn_at=warn_ratio if warn_ratio is not None else None)
+            set_budget_limit(user_id, category, limit_value, warn_at=warn_ratio if warn_ratio is not None else None)
             log_info(
-                "Voice set budget for category=%s amount=%s warn_ratio=%s",
+                "Voice set budget for user=%s category=%s amount=%s warn_ratio=%s",
+                user_id,
                 category,
                 limit_value,
                 warn_ratio,
@@ -822,7 +839,7 @@ def api_voice_command():
             log_error("Voice set budget failed: %s", exc)
             response["reply"] = "Failed to update that budget."
             return jsonify(response), 500
-        limits = get_budget_limits()
+        limits = get_budget_limits(user_id)
         limit_info = limits.get(category.lower())
         statuses = evaluate_monthly_budgets(user_id=user_id)
         status = _find_budget_status(category, statuses)
@@ -850,7 +867,7 @@ def api_voice_command():
             }
         if warn_ratio is not None:
             response["warn_ratio"] = warn_ratio
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     if action == "remove_budget":
@@ -859,8 +876,8 @@ def api_voice_command():
             response["reply"] = "Please tell me which budget to remove."
             return jsonify(response), 400
         try:
-            removed = remove_budget_limit(category)
-            log_info("Voice remove budget for category=%s removed=%s", category, removed)
+            removed = remove_budget_limit(user_id, category)
+            log_info("Voice remove budget for user=%s category=%s removed=%s", user_id, category, removed)
         except ValueError as exc:
             response["reply"] = str(exc)
             return jsonify(response), 400
@@ -872,7 +889,7 @@ def api_voice_command():
         if not removed:
             response["reply"] = f"No budget configured for {human_name}."
             return jsonify(response)
-        limits = get_budget_limits()
+        limits = get_budget_limits(user_id)
         statuses = evaluate_monthly_budgets(user_id=user_id)
         lines = _collect_budget_lines(statuses, limits) if statuses else []
         if lines:
@@ -883,7 +900,7 @@ def api_voice_command():
             response["budget_statuses"] = _serialize_budget_status(statuses)
             response["budget_lines"] = lines
         response["removed_budget"] = category.lower()
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     if action == "chart_summary":
@@ -897,7 +914,7 @@ def api_voice_command():
         response["reply"] = _summarize_chart_series(series)
         # include speak field so frontends can optionally play this text-to-speech
         response["speak"] = response["reply"]
-        _last_commands[user_id] = parsed.copy()
+        set_last_command(user_id, parsed.copy())
         return jsonify(response)
 
     response["reply"] = "That command is not supported yet."

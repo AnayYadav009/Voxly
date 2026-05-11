@@ -1,8 +1,10 @@
+"""Database and schema management module."""
+
 import json
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from config import DB_NAME, DATE_FORMAT
@@ -49,6 +51,23 @@ CREATE TABLE IF NOT EXISTS command_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_command_logs_user_created ON command_logs(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS user_budgets (
+    user_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    limit_amount REAL NOT NULL,
+    warn_ratio REAL NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(user_id, category),
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS user_states (
+    user_id TEXT PRIMARY KEY,
+    last_command TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
 """
 
 def _current_timestamp() -> str:
@@ -76,11 +95,13 @@ def _ensure_user_logging_column(conn: sqlite3.Connection) -> None:
         log_error("Failed to ensure log_opt_in column: %s", exc)
 
 def create_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
+    """Create connection."""
     conn = sqlite3.connect(db_name)
     conn.row_factory = sqlite3.Row
     return conn
 
 def create_table() -> None:
+    """Create table."""
     try:
         with create_connection() as conn:
             # Ensure legacy `user_id` column exists on `expenses` before applying schema
@@ -118,6 +139,7 @@ def _normalize_time(time_str: Optional[str] = None) -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 def create_user(email: str, password_hash: str, display_name: Optional[str] = None) -> Dict[str, Any]:
+    """Create user."""
     user_id = str(uuid4())
     timestamp = _current_timestamp()
     payload = {
@@ -146,6 +168,7 @@ def create_user(email: str, password_hash: str, display_name: Optional[str] = No
         raise
 
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """Get user by email."""
     if not email:
         return None
     try:
@@ -161,6 +184,7 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         raise
 
 def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """Get user by id."""
     if not user_id:
         return None
     try:
@@ -176,6 +200,7 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
         raise
 
 def touch_user_timestamp(user_id: str) -> None:
+    """Touch user timestamp."""
     if not user_id:
         return
     try:
@@ -190,6 +215,7 @@ def touch_user_timestamp(user_id: str) -> None:
 
 
 def update_user_log_opt_in(user_id: str, enabled: bool) -> None:
+    """Update user log opt in."""
     if not user_id:
         return
     try:
@@ -204,6 +230,7 @@ def update_user_log_opt_in(user_id: str, enabled: bool) -> None:
 
 
 def get_user_preferences(user_id: str) -> Dict[str, Any]:
+    """Get user preferences."""
     user = get_user_by_id(user_id)
     return {"log_opt_in": bool(user.get("log_opt_in"))} if user else {"log_opt_in": False}
 
@@ -219,6 +246,7 @@ def log_command_event(
     confidence: Optional[float] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
+    """Log command event."""
     if not (user_id and raw_text):
         return
     payload = {
@@ -255,6 +283,7 @@ def add_expense(
     payment_method: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> int:
+    """Add expense."""
     payload = {
         "amount": amount,
         "category": category,
@@ -282,6 +311,7 @@ def add_expense(
         raise
 
 def get_total_today(user_id: Optional[str] = None) -> float:
+    """Get total today."""
     today = _normalize_date()
     try:
         with create_connection() as conn:
@@ -298,6 +328,7 @@ def get_total_today(user_id: Optional[str] = None) -> float:
         raise
 
 def get_total_by_category(user_id: Optional[str] = None) -> List[Tuple[str, float]]:
+    """Get total by category."""
     try:
         with create_connection() as conn:
             sql = (
@@ -320,6 +351,7 @@ def get_total_by_category(user_id: Optional[str] = None) -> List[Tuple[str, floa
         raise
 
 def get_recent_expenses(limit: int = 5, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Get recent expenses."""
     try:
         with create_connection() as conn:
             params: List[Any] = []
@@ -344,6 +376,7 @@ def get_recent_expenses(limit: int = 5, user_id: Optional[str] = None) -> List[D
         raise
 
 def delete_last_expense(user_id: Optional[str] = None) -> Optional[int]:
+    """Delete last expense."""
     try:
         with create_connection() as conn:
             sql = "SELECT id FROM expenses {where} ORDER BY date DESC, time DESC, id DESC LIMIT 1"
@@ -368,6 +401,7 @@ def delete_last_expense(user_id: Optional[str] = None) -> Optional[int]:
         raise
 
 def delete_expense(expense_id: int, user_id: Optional[str] = None) -> bool:
+    """Delete expense."""
     try:
         with create_connection() as conn:
             sql = "DELETE FROM expenses WHERE id = ?"
@@ -394,6 +428,7 @@ def update_expense(
     time: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> bool:
+    """Update expense."""
     fields: List[str] = []
     params: List[Any] = []
 
@@ -438,6 +473,7 @@ def update_expense(
         raise
 
 def get_weekly_summary(weeks: int = 1, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Get weekly summary."""
     end_date = datetime.now()
     start_date = end_date - timedelta(weeks=weeks)
     try:
@@ -469,6 +505,7 @@ def get_monthly_summary(
     month: Optional[int] = None,
     user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    """Get monthly summary."""
     now = datetime.now()
     year = year or now.year
     month = month or now.month
@@ -507,6 +544,7 @@ def get_monthly_totals_by_category(
     month: Optional[int] = None,
     user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    """Get monthly totals by category."""
     now = datetime.now()
     year = year or now.year
     month = month or now.month
@@ -540,6 +578,7 @@ def get_monthly_totals_by_category(
         raise
 
 def get_all_expenses(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Get all expenses."""
     try:
         with create_connection() as conn:
             sql = (
@@ -557,4 +596,96 @@ def get_all_expenses(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         return [dict(row) for row in rows]
     except sqlite3.Error as exc:
         log_error("Failed to fetch expenses: %s", exc)
+        raise
+
+def get_user_budgets(user_id: str) -> List[Dict[str, Any]]:
+    """Get user budgets."""
+    if not user_id:
+        return []
+    try:
+        with create_connection() as conn:
+            cur = conn.execute(
+                "SELECT category, limit_amount, warn_ratio FROM user_budgets WHERE user_id = ?",
+                (user_id,)
+            )
+            return [dict(row) for row in cur.fetchall()]
+    except sqlite3.Error as exc:
+        log_error("Failed to fetch user budgets: %s", exc)
+        raise
+
+def set_user_budget(user_id: str, category: str, limit_amount: float, warn_ratio: float) -> None:
+    """Set user budget."""
+    if not user_id or not category:
+        return
+    try:
+        with create_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_budgets (user_id, category, limit_amount, warn_ratio, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, category) DO UPDATE SET
+                    limit_amount=excluded.limit_amount,
+                    warn_ratio=excluded.warn_ratio,
+                    updated_at=excluded.updated_at
+                """,
+                (user_id, category.lower(), limit_amount, warn_ratio, _current_timestamp())
+            )
+            conn.commit()
+    except sqlite3.Error as exc:
+        log_error("Failed to set user budget: %s", exc)
+        raise
+
+def remove_user_budget(user_id: str, category: str) -> bool:
+    """Remove user budget."""
+    if not user_id or not category:
+        return False
+    try:
+        with create_connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_budgets WHERE user_id = ? AND category = ?",
+                (user_id, category.lower())
+            )
+            conn.commit()
+            return cur.rowcount > 0
+    except sqlite3.Error as exc:
+        log_error("Failed to remove user budget: %s", exc)
+        raise
+
+def get_last_command(user_id: str) -> Optional[Dict[str, Any]]:
+    """Get last command."""
+    if not user_id:
+        return None
+    try:
+        with create_connection() as conn:
+            cur = conn.execute(
+                "SELECT last_command FROM user_states WHERE user_id = ?",
+                (user_id,)
+            )
+            row = cur.fetchone()
+            if row and row["last_command"]:
+                return json.loads(row["last_command"])
+            return None
+    except (sqlite3.Error, json.JSONDecodeError) as exc:
+        log_error("Failed to get last command: %s", exc)
+        return None
+
+def set_last_command(user_id: str, payload: Dict[str, Any]) -> None:
+    """Set last command."""
+    if not user_id:
+        return
+    try:
+        with create_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_states (user_id, last_command, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    last_command=excluded.last_command,
+                    updated_at=excluded.updated_at
+                """,
+                (user_id, json.dumps(payload), _current_timestamp())
+            )
+            conn.commit()
+    except sqlite3.Error as exc:
+        log_error("Failed to set last command: %s", exc)
         raise

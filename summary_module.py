@@ -1,3 +1,8 @@
+"""Expense summary and aggregation module.
+
+Provides business logic for calculating totals, averages, and generating
+human-readable summary strings for voice and text interfaces.
+"""
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -16,6 +21,15 @@ def _fetch_single(query: str, params: Tuple = ()) -> float:
         raise
 
 def get_total_expenses(user_id: Optional[str] = None) -> float:
+    """Calculate the lifetime total of all expenses for a user.
+    
+    Args:
+        user_id: The ID of the user to filter expenses for.
+        
+    Returns:
+        float: Total expense amount.
+
+    """
     query = "SELECT COALESCE(SUM(amount), 0) FROM expenses"
     params: Tuple = ()
     if user_id:
@@ -28,6 +42,17 @@ def get_monthly_total(
     month: Optional[int] = None,
     user_id: Optional[str] = None,
 ) -> float:
+    """Calculate the total expenses for a specific month.
+    
+    Args:
+        year: The target year (defaults to current year).
+        month: The target month (defaults to current month).
+        user_id: The ID of the user to filter expenses for.
+        
+    Returns:
+        float: Total expense amount for the specified month.
+
+    """
     now = datetime.now()
     year = year or now.year
     month = month or now.month
@@ -50,6 +75,18 @@ def get_expenses_by_category(
     end_inclusive: bool = True,
     user_id: Optional[str] = None,
 ) -> List[Dict[str, float]]:
+    """Aggregate expenses by category within a date range.
+    
+    Args:
+        start_date: Optional start date string (YYYY-MM-DD).
+        end_date: Optional end date string (YYYY-MM-DD).
+        end_inclusive: Whether the end_date should be inclusive or exclusive.
+        user_id: The ID of the user to filter expenses for.
+        
+    Returns:
+        List[Dict[str, float]]: A list of dictionaries containing 'category' and 'total'.
+
+    """
     try:
         with create_connection() as conn:
             conditions: List[str] = []
@@ -80,6 +117,16 @@ def get_expenses_by_category(
         raise
 
 def get_daily_totals(days: int = 7, user_id: Optional[str] = None) -> List[Dict[str, float]]:
+    """Retrieve total spending grouped by day for the last N days.
+    
+    Args:
+        days: Number of recent days to include.
+        user_id: The ID of the user to filter expenses for.
+        
+    Returns:
+        List[Dict[str, float]]: A list of dictionaries with 'date' and 'total'.
+
+    """
     start = datetime.now() - timedelta(days=days - 1)
     try:
         with create_connection() as conn:
@@ -105,6 +152,15 @@ def get_daily_totals(days: int = 7, user_id: Optional[str] = None) -> List[Dict[
         raise
 
 def get_weekly_summary_text(user_id: Optional[str] = None) -> str:
+    """Generate a human-readable text summary of the past week's spending.
+    
+    Args:
+        user_id: The ID of the user to generate the summary for.
+        
+    Returns:
+        str: A multi-line summary string.
+
+    """
     totals = get_daily_totals(days=7, user_id=user_id)
     total_amount = sum(row["total"] for row in totals)
     avg = total_amount / 7 if totals else 0
@@ -139,6 +195,15 @@ def get_weekly_summary_text(user_id: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
+    """Generate a human-readable text summary of the current month's spending.
+    
+    Args:
+        user_id: The ID of the user to generate the summary for.
+        
+    Returns:
+        str: A multi-line summary string comparing the current month to the previous.
+
+    """
     now = datetime.now()
     total = get_monthly_total(now.year, now.month, user_id=user_id)
     start = datetime(now.year, now.month, 1)
