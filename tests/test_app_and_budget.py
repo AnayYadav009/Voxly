@@ -4,6 +4,7 @@ Tests cover API endpoints, voice command parsing, budget limits,
 and multi-user functionality.
 """
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import sqlite3
+import sqlite3  # noqa: E402
 
 import database  # noqa: E402
 import summary_module  # noqa: E402
@@ -31,7 +32,6 @@ from summary_module import (  # noqa: E402
 )
 
 
-app.testing = True
 
 
 @pytest.fixture
@@ -39,14 +39,18 @@ def temp_db(monkeypatch, tmp_path):
     """Temporary database fixture."""
     db_path = tmp_path / "expenses_test.db"
 
-    def _connect(_db_name: str | None = None):
+    @contextmanager
+    def _mock_get_db(_db_name: str | None = None):
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
 
-    monkeypatch.setattr(database, "create_connection", _connect)
-    monkeypatch.setattr(summary_module, "create_connection", _connect)
-    monkeypatch.setattr(visual_module, "create_connection", _connect)
+    monkeypatch.setattr(database, "get_db", _mock_get_db)
+    monkeypatch.setattr(summary_module, "get_db", _mock_get_db)
+    monkeypatch.setattr(visual_module, "get_db", _mock_get_db)
 
     create_table()
 

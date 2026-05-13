@@ -1,113 +1,117 @@
-# Voice Finance Tracker
+# 🎙️ Voxly: Voice-Powered Personal Finance Tracker
 
-Voice-enabled personal finance dashboard with a Flask backend and React frontend. Track spending manually or via natural language commands, review charts, and monitor budgets in real time.
+Voxly is a modern, voice-enabled personal finance dashboard that combines a **Flask** backend with a **React** frontend. It leverages **spaCy-powered NLP** to process natural language commands, allowing users to manage their expenses, monitor budgets, and view financial insights through intuitive voice or text interactions.
 
----
-
-## Prerequisites
-- Python 3.13 (recommended) with virtualenv support
-- Node.js 20 LTS and npm
-- SQLite (bundled with Python)
-- Speech recognition dependencies for optional voice features: microphone access, PyAudio-compatible stack (SoundDevice + PortAudio)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.13%2B-blue)
+![React](https://img.shields.io/badge/react-19-61dafb)
 
 ---
 
-## Quick Start (Development)
+## ✨ Key Features
 
-### 1. Backend API
+- **🗣️ Natural Language Processing:** Record expenses like "Add 500 for groceries" or "I spent 1200 on dinner" using spaCy-driven intent recognition.
+- **📊 Real-time Dashboard:** Visualize spending habits with dynamic charts (Category Breakdown, Daily Trends, Monthly Totals).
+- **🛡️ Smart Budgeting:** Set category-specific limits and receive instant voice/visual alerts when you're nearing your threshold.
+- **🔐 Secure & Private:** Local-first SQLite database with JWT-based authentication and secure password hashing.
+- **📈 Insightful Summaries:** Get instant weekly and monthly text-to-speech summaries of your financial health.
+- **⚡ Responsive UI:** A clean, modern dashboard built with React and Tailwind CSS.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Backend:** Flask, spaCy (NLP), SQLite, Flask-Limiter, PyJWT
+- **Frontend:** React 19, Lucide React, Tailwind CSS
+- **Voice I/O:** Web Speech API (Browser), Pyttsx3/SpeechRecognition (CLI/Fallback)
+- **Testing:** Pytest (Backend), Jest/React Testing Library (Frontend)
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- **Python 3.13+**
+- **Node.js 20+**
+- **Microphone Access** (for voice features)
+
+### 1. Backend Setup
 ```powershell
-# from repo root
+# Clone the repository
+git clone https://github.com/AnayYadav009/Voxly.git
+cd Voxly
+
+# Setup virtual environment
 python -m venv venv
-& .\venv\Scripts\Activate.ps1
-pip install --upgrade pip
+.\venv\Scripts\Activate.ps1
+
+# Install dependencies
 pip install -r requirements.txt
-python database.py  # ensures schema
-python app.py       # runs Flask dev server on http://localhost:5000
+python -m spacy download en_core_web_sm
+
+# Configure environment
+cp .env.example .env
+# Edit .env and set a secure VOXLY_JWT_SECRET
+
+# Start the server
+python app.py
 ```
 
-### 2. Frontend UI
+### 2. Frontend Setup
 ```powershell
-cd .\frontend
+cd frontend
 npm install
-npm start        # CRA dev server at http://localhost:3000
+npm start
 ```
-The frontend dev server proxies API calls to the Flask backend via the configured CRA proxy (set in frontend/package.json).
+The dashboard will be available at `http://localhost:3000`.
 
 ---
 
-## Production Build & Serving
-1. Create the optimized React build:
-   ```powershell
-   cd .\frontend
-   npm run build
-   cd .. 
-   ```
-2. Start Flask in production mode (any WSGI server or `python app.py`). Flask will serve the built assets from `/` or `/app`.
-3. Optional environment variables:
-   - `FLASK_ENV=production`
-   - `PORT=5000` (override default)
-   - `DATABASE_URL` (if you migrate off SQLite)
+## 🗣️ Example Commands
+
+| Intent | Example Phrase |
+| :--- | :--- |
+| **Add Expense** | "Add 500 to food" / "Spent 100 on travel yesterday" |
+| **Check Balance** | "What's my balance today?" |
+| **Review History** | "Show recent expenses" |
+| **Summarize** | "Give me a weekly summary" |
+| **Budgeting** | "Set budget for shopping to 5000" |
+| **Correction** | "Delete last expense" |
 
 ---
 
-## Test Suite
+## 🧪 Running Tests
+
+### Backend
 ```powershell
-# backend integration tests
-pytest -q
+pytest
+```
 
-# frontend unit tests
-cd .\frontend
+### Frontend
+```powershell
+cd frontend
 npm test -- --watchAll=false
 ```
 
-Integration tests use a stubbed SQLite database and verify key endpoints: `/api/add`, `/api/voice_command`, `/api/charts/*`.
+---
+
+## 📂 Project Structure
+
+- `app.py`: Main Flask entry point and REST API.
+- `voice_module.py`: Voice input processing and command parsing.
+- `nlp_engine.py`: Intent and entity extraction using spaCy.
+- `budget_module.py`: Budget evaluation and alert logic.
+- `database.py`: SQLite interaction layer.
+- `frontend/`: React source code and dashboard components.
+- `visual_module.py`: Data aggregation for charts.
 
 ---
 
-## Voice Commands
-Example phrases the assistant can parse:
-- "Add 500 to food"
-- "Delete last expense"
-- "What's my balance today?"
-- "Show recent expenses"
-- "Give weekly summary"
+## 🤝 Contributing
+Contributions are welcome! Please feel free to submit a Pull Request or open an issue for any bugs or feature requests.
 
-The Web Speech API handles microphone input in the browser. Ensure HTTPS or localhost usage for microphone access.
+## 📄 License
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 ---
-
-## Folder Overview
-```
-app.py                # Flask app with REST endpoints and voice integration
-frontend/             # React dashboard (Create React App)
-  src/App.js          # Voice-enabled dashboard UI
-  package.json        # Scripts and dependencies
-static/voice.js       # Legacy voice client for non-React page
-visual_module.py      # Chart data aggregations and Matplotlib exports
-summary_module.py     # Weekly/monthly text summaries
-budget_module.py      # Budget loading, evaluation, alerts
-database.py           # SQLite helpers (CRUD)
-logger.py             # Shared logger config
-tests/                # Pytest integration suite
-```
-
----
-
-## Deployment Tips
-- Run behind a production WSGI server (gunicorn/uvicorn) and reverse proxy (nginx) for static asset caching.
-- Configure HTTPS to enable speech recognition in browsers.
-- Provision SQLite backups or migrate to a hosted SQL database for multi-user setups.
-- Monitor logs in the `logs/` directory; they rotate automatically.
-
----
-
-## Troubleshooting
-- **CORS errors**: ensure Flask is running on 5000 with CORS enabled (flask-cors is already configured).
-- **Voice commands denied**: browsers require microphone permissions and secure contexts.
-- **Chart endpoints empty**: add expenses to populate category/daily/monthly aggregations.
-- **React build not found**: run `npm run build` so Flask can serve the bundle.
-
----
-
-## License
-MIT © 2025–2026
+MIT © 2026 [Anay Yadav](https://github.com/AnayYadav009)

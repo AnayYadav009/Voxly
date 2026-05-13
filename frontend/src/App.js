@@ -19,6 +19,7 @@ import {
 
 import {
   addExpense as apiAddExpense,
+  getBudgets,
   getCategoryBreakdown,
   getDailyTotals,
   getMonthlyTotals,
@@ -37,11 +38,15 @@ const BUDGET_GUESSES = {
   shopping: 5000,
   utilities: 5000,
   health: 3000,
+  education: 5000,
+  rent: 20000,
+  savings: 10000,
   personal: 2000,
   gifts: 2000,
-  savings: 6000,
+  charity: 1000,
+  insurance: 3000,
+  fees: 1000,
   uncategorized: 2000,
-  other: 2500,
 };
 
 const formatINR = (value) => {
@@ -56,13 +61,19 @@ const formatINR = (value) => {
   }).format(Number(value));
 };
 
-const titleCase = (value) =>
-  value
-    ? value
-        .toString()
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (char) => char.toUpperCase())
-    : '';
+const toLocalISO = (date) => {
+  const off = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - off * 60 * 1000);
+  return local.toISOString().slice(0, 10);
+};
+
+const titleCase = (value) => {
+  if (!value) {
+    return '';
+  }
+  const s = value.toString().replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+};
 
 const parseCurrencyValue = (line) => {
   if (!line) {
@@ -235,7 +246,7 @@ const computeDailySpending = (expenses = []) => {
   for (let offset = 6; offset >= 0; offset -= 1) {
     const date = new Date(today);
     date.setDate(today.getDate() - offset);
-    const key = date.toISOString().slice(0, 10);
+    const key = toLocalISO(date);
     buckets.push({
       key,
       day: date.toLocaleDateString('en-IN', { weekday: 'short' }),
@@ -264,6 +275,7 @@ const VoiceFinanceDashboard = ({
   const [chartCategories, setChartCategories] = useState([]);
   const [chartDaily, setChartDaily] = useState([]);
   const [chartMonthly, setChartMonthly] = useState([]);
+  const [userBudgets, setUserBudgets] = useState({});
   const [isRecording, setIsRecording] = useState(false);
   const [expandedSection, setExpandedSection] = useState(null);
   const [newExpense, setNewExpense] = useState({ amount: '', category: 'food' });
@@ -288,13 +300,14 @@ const VoiceFinanceDashboard = ({
     setLoading(true);
     setError(null);
     try {
-      const [summaryResult, recentResult, categoryResult, dailyResult, monthlyResult] =
+      const [summaryResult, recentResult, categoryResult, dailyResult, monthlyResult, budgetResult] =
         await Promise.allSettled([
           getSummary(),
           getRecent(RECENT_LIMIT),
           getCategoryBreakdown(),
           getDailyTotals(7),
           getMonthlyTotals(6),
+          getBudgets(),
         ]);
 
       let loadError = null;
@@ -352,6 +365,12 @@ const VoiceFinanceDashboard = ({
         setChartMonthly([]);
       }
 
+      if (budgetResult.status === 'fulfilled') {
+        setUserBudgets(budgetResult.value || {});
+      } else {
+        setUserBudgets({});
+      }
+
       if (loadError) {
         setError(loadError);
       }
@@ -362,6 +381,7 @@ const VoiceFinanceDashboard = ({
       setChartCategories([]);
       setChartDaily([]);
       setChartMonthly([]);
+      setUserBudgets({});
     } finally {
       setLoading(false);
     }
@@ -408,6 +428,7 @@ const VoiceFinanceDashboard = ({
       }
 
       if (replyMessage && 'speechSynthesis' in window && replyMessage.length <= 160) {
+        window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(replyMessage);
         window.speechSynthesis.speak(utterance);
       }
@@ -665,7 +686,8 @@ const VoiceFinanceDashboard = ({
   const categoryData = useMemo(
     () =>
       categoryTotals.map((item) => {
-        const budget = BUDGET_GUESSES[item.category] ?? 4000;
+        const budgetInfo = userBudgets[item.category];
+        const budget = budgetInfo ? budgetInfo.limit : (BUDGET_GUESSES[item.category] ?? 4000);
         const percentage = budget ? Math.round((item.amount / budget) * 100) : 0;
         return {
           category: titleCase(item.category),
@@ -674,7 +696,7 @@ const VoiceFinanceDashboard = ({
           percentage,
         };
       }),
-    [categoryTotals],
+    [categoryTotals, userBudgets],
   );
 
   const maxDaily = dailySpending.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;

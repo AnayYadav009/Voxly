@@ -121,26 +121,42 @@ async function apiFetch(path, options = {}) {
     signal: controller.signal,
   };
 
-  try {
-    const response = await fetch(path, finalOptions);
-    const data = await response.json().catch(() => null);
+  const attemptRequest = async (retriesLeft) => {
+    try {
+      const response = await fetch(path, finalOptions);
+      const data = response.status === 204 ? null : await response.json().catch(() => null);
 
-    if (!response.ok) {
-      if (response.status === 401 && !skipAuth) {
-        const refreshed = await attemptRefresh();
-        if (refreshed && !_retry) {
-          return apiFetch(path, { ...options, _retry: true });
+      if (!response.ok) {
+        if (response.status >= 500 && response.status < 600 && retriesLeft > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          return attemptRequest(retriesLeft - 1);
         }
+        if (response.status === 401 && !skipAuth) {
+          const refreshed = await attemptRefresh();
+          if (refreshed && !_retry) {
+            return apiFetch(path, { ...options, _retry: true });
+          }
+        }
+        const error = new Error(
+          (data && (data.error || data.message)) || `Request failed: ${response.status}`,
+        );
+        error.status = response.status;
+        error.body = data;
+        throw error;
       }
-      const error = new Error(
-        (data && (data.error || data.message)) || `Request failed: ${response.status}`,
-      );
-      error.status = response.status;
-      error.body = data;
+
+      return data;
+    } catch (error) {
+      if (!error.status && retriesLeft > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        return attemptRequest(retriesLeft - 1);
+      }
       throw error;
     }
+  };
 
-    return data;
+  try {
+    return await attemptRequest(1);
   } finally {
     clearTimeout(timer);
   }
@@ -151,6 +167,7 @@ export const getRecent = (limit = 10) => apiFetch(`/api/recent?limit=${limit}`);
 export const getCategoryBreakdown = () => apiFetch('/api/charts/category-breakdown');
 export const getDailyTotals = (days = 7) => apiFetch(`/api/charts/daily-totals?days=${days}`);
 export const getMonthlyTotals = (months = 6) => apiFetch(`/api/charts/monthly-totals?months=${months}`);
+export const getBudgets = () => apiFetch('/api/budgets');
 
 export const addExpense = (payload) =>
   apiFetch('/api/add', {

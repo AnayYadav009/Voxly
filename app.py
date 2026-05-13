@@ -1,4 +1,4 @@
-"""Database and schema management module."""
+"""Main application entry point and API routes."""
 
 import os
 import sqlite3
@@ -32,6 +32,7 @@ from config import (
     DATE_FORMAT,
     REACT_BUILD_DIR,
     REACT_INDEX_FILE,
+    ensure_dirs,
 )
 from database import (
     add_expense,
@@ -54,7 +55,6 @@ from summary_module import (
     get_weekly_summary_text,
 )
 from visual_module import (
-    ensure_chart_dir,
     generate_all_charts,
     get_category_breakdown,
     get_monthly_totals_by_month,
@@ -63,9 +63,32 @@ from visual_module import (
 from logger import log_error, log_info
 from voice_module import parse_expense
 
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
-CORS(app)  # allow frontend dev server to reach the API
-ensure_chart_dir()  # make sure chart directory exists at startup
+ALLOWED_ORIGINS = os.environ.get("VOXLY_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
+ensure_dirs()  # make sure chart directory exists at startup
+
+app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+)
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({"error": "Payload too large. Maximum size is 1MB."}), 413
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    return response
 
 _MAX_CATEGORY_LENGTH = 50
 
@@ -303,6 +326,16 @@ def serve_react_app(path: str):
         404,
     )
 
+@app.route("/api/budgets")
+def api_budgets():
+    """Handle API budgets."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    limits = get_budget_limits(user["id"])
+    data = {cat: {"limit": lim.limit, "warn_ratio": lim.warn_ratio} for cat, lim in limits.items()}
+    return jsonify(data)
+
 @app.route("/api/summary")
 def api_summary():
     """Handle API summary."""
@@ -316,6 +349,7 @@ def api_summary():
         monthly_summary=context["monthly_summary"],
         category_totals=context["category_totals"],
         budget_alerts=context["budget_alerts"],
+        monthly_total=context["monthly_total"],
     )
 
 @app.route("/api/recent")
@@ -373,6 +407,7 @@ def api_chart_monthly_totals():
     return jsonify(payload)
 
 @app.route("/api/auth/register", methods=["POST"])
+@limiter.limit("5 per minute")
 def api_auth_register():
     """Handle API auth register."""
     data = request.get_json(silent=True) or {}
@@ -398,6 +433,7 @@ def api_auth_register():
     return _auth_success_response(user)
 
 @app.route("/api/auth/login", methods=["POST"])
+@limiter.limit("10 per minute")
 def api_auth_login():
     """Handle API auth login."""
     data = request.get_json(silent=True) or {}

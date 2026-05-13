@@ -1,12 +1,11 @@
-"""Database and schema management module."""
+"""Voice input and NLP command processing module."""
 
 import os
 import random
 import re
 import tempfile
 import time
-from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 try:
     import dateparser
@@ -19,28 +18,33 @@ except Exception:
         return None
     _HAS_DATEPARSER = False
 from word2number import w2n
+import nlp_engine
+
+import threading
 
 _engine = None
+_tts_lock = threading.Lock()
 _recognizer = None
 
 def _get_engine():
     global _engine
-    if _engine is not None:
-        return _engine
-    try:
-        import pyttsx3
+    with _tts_lock:
+        if _engine is not None:
+            return _engine
+        try:
+            import pyttsx3
 
-        _engine = pyttsx3.init()
-        voices = _engine.getProperty("voices")
-        for voice in voices:
-            name = getattr(voice, "name", "").lower()
-            if "zira" in name or "female" in name:
-                _engine.setProperty("voice", voice.id)
-                break
-        _engine.setProperty("rate", 170)
-        _engine.setProperty("volume", 1.0)
-    except Exception:
-        _engine = None
+            _engine = pyttsx3.init()
+            voices = _engine.getProperty("voices")
+            for voice in voices:
+                name = getattr(voice, "name", "").lower()
+                if "zira" in name or "female" in name:
+                    _engine.setProperty("voice", voice.id)
+                    break
+            _engine.setProperty("rate", 170)
+            _engine.setProperty("volume", 1.0)
+        except Exception:
+            _engine = None
     return _engine
 
 def _get_recognizer():
@@ -54,442 +58,154 @@ def _get_recognizer():
         _recognizer = None
     return _recognizer
 
-_AMOUNT_CONTEXT_WORDS = {
-    "add","added","adding",
-    "amount","cost","expense",
-    "log","logged","logging",
-    "pay","paid","paying",
-    "purchase","purchased",
-    "record","recorded","recording",
-    "set","spend","spending","spent",
-    "to","for","on","under",
-}
+def _preprocess(text: str) -> str:
+    """Normalize text and fix tokenization for currency."""
+    text = text.strip().lower()
+    # Insert space between currency symbol and digits: ₹500 -> ₹ 500
+    text = re.sub(r'([₹$€£])(\d)', r'\1 \2', text)
+    # Remove commas inside numbers
+    text = re.sub(r'(\d),(\d)', r'\1\2', text)
+    return text
 
-_CURRENCY_WORDS = {
-    "₹","rs","rs.","rupee","rupees","inr",
-    "$","usd","dollar","dollars","bucks",
-    "€","euro","euros","£","pound","pounds",
-}
-
-_NUMBER_WORD_TOKENS = {
-    "zero","one","two","three","four","five",
-    "six","seven","eight","nine","ten",
-    "eleven","twelve","thirteen","fourteen","fifteen",
-    "sixteen","seventeen","eighteen","nineteen","twenty",
-    "thirty","forty","fifty","sixty","seventy","eighty","ninety","hundred",
-    "thousand","lakh","lakhs","million","billion","trillion",
-    "point","and","minus","negative",
-}
-
-_AMOUNT_PATTERN = re.compile(
-    r"(?:₹|rs\.?|rupees?|inr|usd|dollars?|bucks|euros?|pounds?|[$€£])?\s*(-?\d+(?:[,\s]\d{3})*(?:\.\d+)?)",
-)
-
-_CATEGORY_SYNONYMS = {
-    "food": {
-        "food","meal","meals",
-        "lunch","dinner","breakfast",
-        "snack","snacks",
-        "restaurant","restaurants",
-        "groceries","grocery",
-        "coffee","tea",
-        "drink","drinks",
-    },
-    "transport": {
-        "transport","travel",
-        "taxi","cab","uber","ola",
-        "bus","train","metro","ride","rides",
-        "petrol","diesel","fuel","gas","commute",
-    },
-    "entertainment": {
-        "entertainment","movie","movies",
-        "netflix","prime","hotstar","ott",
-        "show","shows","concert",
-        "gaming","game","games","fun",
-    },
-    "shopping": {
-        "shopping","amazon","mall","purchase","purchases",
-        "bought","buy","buying","retail","clothes","clothing","apparel",
-    },
-    "utilities": {
-        "utility","utilities",
-        "electricity","power","water","gas",
-        "internet","wifi","broadband",
-        "phone","mobile","recharge","bill","bills",
-    },
-    "health": {
-        "health","doctor","hospital",
-        "medical","medicine","medicines",
-        "pharmacy","clinic","fitness","gym",
-    },
-    "education": {
-        "education","study","studies",
-        "course","courses","tuition",
-        "class","classes","training","book","books",
-    },
-    "rent": {
-        "rent","renting","lease",
-        "housing","house","apartment","flat",
-    },
-    "savings": {
-        "savings","investment","invest","investing",
-        "mutual fund","fixed deposit","fd","rd","sip",
-    },
-    "personal": {
-        "personal","care","salon",
-        "beauty","spa","grooming",
-    },
-    "gifts": {
-        "gift","gifts","present","presents",
-    },
-    "charity": {
-        "charity","donation","donations",
-    },
-    "insurance": {
-        "insurance","premium","policy",
-    },
-    "fees": {
-        "fee","fees","subscription","subscriptions",
-    },
-}
-
-_CATEGORY_KEYWORDS = []
-for _canonical, _synonyms in _CATEGORY_SYNONYMS.items():
-    terms = {_canonical, *_synonyms}
-    for term in terms:
-        normalized_term = term.lower().strip()
-        if normalized_term:
-            _CATEGORY_KEYWORDS.append((normalized_term, _canonical))
-
-_CATEGORY_KEYWORDS.sort(key=lambda item: -len(item[0]))
-
-_CATEGORY_TERMS = {
-    canonical: {term.lower() for term in terms | {canonical}}
-    for canonical, terms in _CATEGORY_SYNONYMS.items()
-}
-
-_CATEGORY_PHRASE_PATTERN = re.compile(
-    r"(?:\bto\b|\bon\b|\bfor\b|\bunder\b)\s+([a-z0-9 '&/-]+)",
-)
-
-_DATE_KEYWORDS = {
-    "today","yesterday","tomorrow","tonight","tonite","yday",
-}
-
-_WEEKDAY_KEYWORDS = {
-    "monday","tuesday","wednesday","thursday","friday","saturday","sunday",
-}
-
-_MONTH_KEYWORDS = {
-    "january","february","march","april","may","june",
-    "july","august","september","october","november","december",
-    "jan","feb","mar","apr","jun","jul","aug","sep","sept","oct","nov","dec",
-}
-
-_RELATIVE_DATE_PHRASES = {
-    "last week","last month","next week","next month",
-    "this week","this month","last night","last evening",
-}
-
-_NUMERIC_DATE_PATTERN = re.compile(r"\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b")
-_ORDINAL_DATE_PATTERN = re.compile(r"\b\d{1,2}(?:st|nd|rd|th)\b")
-
-_ALL_DATE_TOKENS = (
-    _DATE_KEYWORDS
-    | _WEEKDAY_KEYWORDS
-    | _MONTH_KEYWORDS
-    | {word for phrase in _RELATIVE_DATE_PHRASES for word in phrase.split()}
-)
-
-_ACTION_PATTERNS = {
-    "exit": [r"\b(?:stop|exit|quit|close|shut down|goodbye|bye)\b"],
-    "help": [r"\bhelp\b", r"what can you do", r"list commands"],
-    "repeat": [r"\brepeat\b", r"say (?:that )?again", r"last command"],
-    "delete": [
-        r"\b(?:delete|remove|undo|erase|cancel)(?:\s+(?:last\s+)?.*?(?:expense|entry|transaction))?\b",
-        r"\bcancel last expense\b",
-        r"\b(delete|remove|undo)\b",
-    ],
-    "recent": [
-        r"\brecent\b.*\b(expense|expenses|entries|transactions)\b",
-        r"\bshow (?:me )?(?:the )?(?:last|recent)\b",
-        r"\blast\b.*\b(expense|entry)\b",
-        r"\bexpense history\b",
-        r"\brecent\b",
-    ],
-    "weekly": [
-        r"\bweekly\b.*\b(summary|report|breakdown|spend|spending|expenses|stats)\b",
-        r"\bthis week'?s?\b.*\b(summary|report|spending|expenses|stats)\b",
-        r"\bweek(?:ly)? summary\b",
-        r"\bweekly\b",
-    ],
-    "monthly": [
-        r"\bmonthly\b.*\b(summary|report|breakdown|spend|spending|expenses|stats)\b",
-        r"\bthis month'?s?\b.*\b(summary|report|spending|expenses|stats)\b",
-        r"\bmonth(?:ly)? summary\b",
-        r"\bmonthly\b",
-    ],
-    "balance": [
-        r"\bbalance\b",
-        r"total\s+(?:spent|spend)(?:\s+today)?",
-        r"how much (?:have|did) i\s+(?:spend|spent)",
-        r"\bspending\s+(?:today|so far)\b",
-        r"\bexpense total\b",
-        r"\btoday'?s? total\b",
-    ],
-}
-
-_SET_BUDGET_PATTERNS = [
-    r"\bset\b.*\bbudget\b",
-    r"\bset a budget\b",
-    r"\bbudget for\b.*\bset\b",
-]
-
-_SHOW_BUDGETS_PATTERNS = [
-    r"\b(show|what(?:'s| is)|list)\b.*\bbudgets?\b",
-    r"\bbudget status\b",
-    r"\bshow my budgets\b",
-    r"\bwhat'?s my budget\b",
-    r"\bhow much\b.*\b(?:left|remaining)\b.*\bbudget\b",
-    r"\bremaining\b.*\bbudget\b",
-]
-
-_REMOVE_BUDGET_PATTERNS = [
-    r"\b(remove|delete|clear|cancel)\b.*\bbudget\b",
-    r"\bbudget\b.*\b(remove|delete|clear|cancel)\b",
-    r"\bno more\b.*\bbudget\b",
-]
-
-_CHART_SUMMARY_PATTERNS = [
-    r"\bchart(?:s)?\b.*\b(?:summary|recap|overview|breakdown)\b",
-    r"\b(?:graph|graphs|visuals?)\b.*\b(?:summary|recap)\b",
-    r"\bchart recap\b",
-    r"\bshow\b.*\bcharts\b",
-]
-
-_WARN_TRIGGER_PATTERN = re.compile(r"(warn|alert|notify|remind)[^.,;]*")
-_WARN_PERCENT_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:percent|%)")
-
-def _normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().lower())
-
-def _has_amount_context(fragment: str, include_connectors: bool = True) -> bool:
-    tokens = re.findall(r"[a-z₹$€£]+", fragment.lower())
-    context_words = _AMOUNT_CONTEXT_WORDS if include_connectors else _AMOUNT_CONTEXT_WORDS - {
-        "to","for","on","under",
-    }
-    if any(word in context_words for word in tokens):
-        return True
-    if any(token in _CURRENCY_WORDS for token in tokens):
-        return True
-    if any(symbol in fragment for symbol in {"₹", "$", "€", "£"}):
-        return True
-    return False
-
-def _extract_numeric_amount(text: str) -> Optional[float]:
-    for match in _AMOUNT_PATTERN.finditer(text):
-        start, end = match.span()
-        matched_text = match.group(0)
-        numeric_part = match.group(1)
-        if not numeric_part:
-            continue
-        context = text[max(0, start - 12) : min(len(text), end + 12)]
-        has_currency = any(token in _CURRENCY_WORDS for token in re.findall(r"[a-z₹$€£]+", matched_text.lower()))
-        if not has_currency and not _has_amount_context(context):
-            continue
+def _extract_amount(doc) -> Optional[float]:
+    """Extract numeric amount from doc via NER and fallbacks."""
+    # 1. NER check
+    for ent in doc.ents:
+        if ent.label_ in {"MONEY", "CARDINAL"}:
+            try:
+                # Strip currency symbols and whitespace
+                cleaned = re.sub(r'[₹$€£\s]', '', ent.text)
+                val = float(cleaned)
+                if val > 0:
+                    return val
+            except ValueError:
+                continue
+    
+    # 2. Token-level fallback
+    for token in doc:
+        if token.like_num or (token.text.replace('.', '', 1).isdigit()):
+            try:
+                val = float(token.text)
+                if val > 0:
+                    return val
+            except ValueError:
+                continue
+                
+    # 3. word2number fallback
+    num_words = []
+    for token in doc:
+        # Simple heuristic for number words
+        if token.lower_ in {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", 
+                           "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+                           "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "lakh", "million"}:
+            num_words.append(token.lower_)
+        elif num_words:
+            # Try to convert collected sequence
+            try:
+                val = float(w2n.word_to_num(" ".join(num_words)))
+                if val > 0:
+                    return val
+            except ValueError:
+                pass
+            num_words = []
+    
+    if num_words:
         try:
-            cleaned = numeric_part.replace(",", "").replace(" ", "")
-            value = float(cleaned)
+            val = float(w2n.word_to_num(" ".join(num_words)))
+            if val > 0:
+                return val
         except ValueError:
-            continue
-        return int(value) if value.is_integer() else value
-
-    for match in re.finditer(r"-?\d+(?:\.\d+)?", text):
-        start, end = match.span()
-        context = text[max(0, start - 10) : min(len(text), end + 10)]
-        if not _has_amount_context(context):
-            continue
-        try:
-            value = float(match.group(0).replace(",", ""))
-        except ValueError:
-            continue
-        return int(value) if value.is_integer() else value
+            pass
+            
     return None
 
+def _extract_category(doc) -> str:
+    """Match canonical category from doc."""
+    # Words that are both category synonyms and action verbs — skip them
+    _ACTION_WORDS = {"show", "buy", "purchase", "bought", "record", "log", "book", "pay", "paid", "spend", "spent", "note"}
+    nlp = nlp_engine.get_nlp()
+    matcher = nlp_engine.get_category_matcher(nlp)
+    matches = matcher(doc)
+    for match_id, start, end in matches:
+        matched_text = doc[start:end].text.lower()
+        if matched_text in _ACTION_WORDS:
+            continue
+        return nlp.vocab.strings[match_id]
+    return "uncategorized"
 
-def _extract_word_amount(text: str) -> Optional[float]:
-    tokens = re.findall(r"[a-z]+", text.lower())
-    if not tokens:
-        return None
-    max_span = 7
-    for index, token in enumerate(tokens):
-        if token not in _NUMBER_WORD_TOKENS:
+def _extract_description(doc, category: str, amount_tokens: Set[int]) -> Optional[str]:
+    """Build description by filtering tokens."""
+    cat_synonyms = nlp_engine.CATEGORY_SYNONYMS.get(category, set()) | {category}
+    
+    desc_parts = []
+    for token in doc:
+        if token.i in amount_tokens:
             continue
-        phrase_tokens = []
-        for inner in range(index, min(len(tokens), index + max_span)):
-            candidate = tokens[inner]
-            if candidate not in _NUMBER_WORD_TOKENS:
-                break
-            phrase_tokens.append(candidate)
-        if not phrase_tokens:
+        if token.is_stop or token.is_punct:
             continue
-        phrase = " ".join(phrase_tokens)
-        try:
-            value = float(w2n.word_to_num(phrase))
-        except ValueError:
+        if token.lower_ in cat_synonyms:
             continue
-        prev_token = tokens[index - 1] if index > 0 else ""
-        next_index = index + len(phrase_tokens)
-        next_token = tokens[next_index] if next_index < len(tokens) else ""
-        if _has_amount_context(prev_token, include_connectors=False) or _has_amount_context(
-            next_token, include_connectors=False
-        ):
-            return int(value) if value.is_integer() else value
-        context_slice = re.search(r"\b" + re.escape(phrase) + r"\b", text.lower())
-        if context_slice:
-            start, end = context_slice.span()
-            context = text[max(0, start - 10) : min(len(text), end + 10)]
-            if _has_amount_context(context, include_connectors=False):
-                return int(value) if value.is_integer() else value
+        # Also check lemmas for category synonyms
+        if token.lemma_ in cat_synonyms:
+            continue
+        desc_parts.append(token.text)
+        
+    res = " ".join(desc_parts).strip()
+    return res if res else None
+
+def _extract_warn_ratio(doc) -> Optional[float]:
+    """Extract budget warning ratio."""
+    for ent in doc.ents:
+        if ent.label_ == "PERCENT":
+            # Check window before
+            start_idx = max(0, ent.start - 5)
+            window = doc[start_idx : ent.start]
+            if any(t.lemma_ in {"warn", "alert", "notify", "remind"} for t in window):
+                try:
+                    val_str = ent.text.replace('%', '').replace('percent', '').strip()
+                    val = float(val_str)
+                    if val > 1:
+                        val = val / 100.0
+                    return max(0.0, min(val, 1.0))
+                except ValueError:
+                    continue
     return None
 
-def _extract_amount(text: str) -> Optional[float]:
-    numeric = _extract_numeric_amount(text)
-    if numeric is not None:
-        return numeric
-    return _extract_word_amount(text)
-
-def _extract_warn_ratio(text: str) -> Optional[float]:
-    lowered = text.lower()
-    trigger = _WARN_TRIGGER_PATTERN.search(lowered)
-    if trigger:
-        search_space = lowered[trigger.start() :]
-    else:
-        search_space = lowered
-    match = _WARN_PERCENT_PATTERN.search(search_space)
-    if not match:
-        return None
-    try:
-        value = float(match.group(1))
-    except ValueError:
-        return None
-    if value > 1:
-        value = value / 100.0
-    value = max(0.0, min(value, 1.0))
-    return value
-
-def _category_from_text(fragment: str) -> Optional[str]:
-    cleaned = re.sub(r"[^a-z0-9\s]", " ", fragment.lower())
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if not cleaned:
-        return None
-    padded = f" {cleaned} "
-    for synonym, canonical in _CATEGORY_KEYWORDS:
-        if f" {synonym} " in padded:
-            return canonical
-    return None
-
-def _strip_known_terms(phrase: str, category: str) -> Optional[str]:
-    cleaned = phrase
-    for term in _CATEGORY_TERMS.get(category, set()):
-        cleaned = re.sub(
-            r"\b" + re.escape(term) + r"\b",
-            " ",
-            cleaned,
-            flags=re.IGNORECASE,
-        )
-    for keyword in _ALL_DATE_TOKENS:
-        cleaned = re.sub(
-            r"\b" + re.escape(keyword) + r"\b",
-            " ",
-            cleaned,
-            flags=re.IGNORECASE,
-        )
-    cleaned = re.sub(r"[^A-Za-z0-9\s]", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned or None
-
-def _extract_category_and_description(text: str, original_text: str) -> tuple[str, Optional[str]]:
-    for match in _CATEGORY_PHRASE_PATTERN.finditer(text):
-        phrase_lower = match.group(1).strip()
-        category = _category_from_text(phrase_lower)
-        if category:
-            original_slice = original_text[match.start(1) : match.end(1)]
-            description = _strip_known_terms(original_slice, category)
-            return category, description
-    category = _category_from_text(text)
-    if category:
-        return category, None
-    return "uncategorized", None
-
-def _contains_date_signal(text: str) -> bool:
-    lowered = text.lower()
-    if any(keyword in lowered for keyword in _DATE_KEYWORDS):
-        return True
-    if any(phrase in lowered for phrase in _RELATIVE_DATE_PHRASES):
-        return True
-    tokens = set(re.findall(r"[a-z]+", lowered))
-    if tokens & _WEEKDAY_KEYWORDS:
-        return True
-    if tokens & _MONTH_KEYWORDS:
-        return True
-    if _NUMERIC_DATE_PATTERN.search(lowered) or _ORDINAL_DATE_PATTERN.search(lowered):
-        return True
-    return False
-
-def _extract_date(original_text: str, *, base_datetime: Optional[datetime] = None) -> Optional[str]:
-    # If dateparser isn't installed, avoid trying to parse dates and return
-    # None so the rest of the command still executes.
+def _extract_date(text: str) -> Optional[str]:
+    """Keep using dateparser for dates."""
     if not _HAS_DATEPARSER:
         return None
-    if not _contains_date_signal(original_text):
-        return None
-
-    base_reference = base_datetime or datetime.now()
+    
     settings = {
         "PREFER_DATES_FROM": "past",
-        "RELATIVE_BASE": base_reference,
         "RETURN_AS_TIMEZONE_AWARE": False,
         "DATE_ORDER": "DMY",
     }
-
-    search_results = search_dates(original_text, settings=settings)
-    if search_results:
-        for fragment, parsed in search_results:
-            fragment_lower = fragment.lower()
-            if any(token in fragment_lower for token in _ALL_DATE_TOKENS) or _NUMERIC_DATE_PATTERN.search(
-                fragment_lower
-            ) or _ORDINAL_DATE_PATTERN.search(fragment_lower):
-                return parsed.date().isoformat()
-
-    parsed = dateparser.parse(original_text, settings=settings)
+    
+    # Try search_dates first
+    results = search_dates(text, settings=settings)
+    if results:
+        # Take the first parsed date
+        return results[0][1].date().isoformat()
+    
+    # Try direct parse
+    parsed = dateparser.parse(text, settings=settings)
     if parsed:
         return parsed.date().isoformat()
+    
     return None
 
-def _detect_action(text: str, has_amount: bool, has_category: bool) -> Optional[str]:
-    if any(re.search(p, text) for p in _SET_BUDGET_PATTERNS):
-        return "set_budget"
-    if any(re.search(p, text) for p in _SHOW_BUDGETS_PATTERNS):
-        return "show_budgets"
-    if any(re.search(p, text) for p in _REMOVE_BUDGET_PATTERNS):
-        return "remove_budget"
-    if any(re.search(p, text) for p in _CHART_SUMMARY_PATTERNS):
-        return "chart_summary"
-
-    for action, patterns in _ACTION_PATTERNS.items():
-        if any(re.search(pattern, text) for pattern in patterns):
-            return action
-
-    add_patterns = [
-        r"\b(add|record|log|note|register|capture|save|set aside)\b",
-        r"\b(spend|spent|pay|paid|purchase|purchased|buy|bought)\b",
-    ]
-    if any(re.search(pattern, text) for pattern in add_patterns):
-        return "add"
-
-    if has_amount or has_category:
-        return "add"
+def _detect_action(doc) -> Optional[str]:
+    """Detect command action using Matcher."""
+    nlp = nlp_engine.get_nlp()
+    matcher = nlp_engine.get_action_matcher(nlp)
+    matches = matcher(doc)
+    if matches:
+        # Respect priority order from ACTION_PRIORITY
+        found_actions = {nlp.vocab.strings[m_id] for m_id, start, end in matches}
+        for candidate in nlp_engine.ACTION_PRIORITY:
+            if candidate in found_actions:
+                return candidate
     return None
 
 _TONE_RESPONSES = {
@@ -615,55 +331,48 @@ def parse_expense(text: str) -> Dict[str, Any]:
     """Parse expense."""
     if not text or not text.strip():
         return {"action": "none"}
-
-    raw_text = text.strip()
-    lower_text = raw_text.lower()
-    normalized_text = _normalize_text(raw_text)
-
-    amount = _extract_amount(normalized_text)
-    category, description = _extract_category_and_description(lower_text, raw_text)
-    has_category = category != "uncategorized"
-
-    action = _detect_action(normalized_text, amount is not None, has_category)
-
+    
+    preprocessed = _preprocess(text)
+    nlp = nlp_engine.get_nlp()
+    doc = nlp(preprocessed)
+    
+    action = _detect_action(doc)
+    
     if action is None:
-        return {"action": "unknown", "raw": normalized_text}
-
+        # check if there's an amount or category as implicit "add"
+        amount = _extract_amount(doc)
+        category = _extract_category(doc)
+        if amount is not None or category != "uncategorized":
+            action = "add"
+        else:
+            return {"action": "unknown", "raw": preprocessed}
+    
     if action == "add":
-        expense_date = _extract_date(raw_text)
-        result: Dict[str, Any] = {
-            "action": "add",
-            "amount": amount,
-            "category": category,
-            "date": expense_date,
-            "description": description,
-        }
-        return result
-
+        amount = _extract_amount(doc)
+        category = _extract_category(doc)
+        # find amount span for description extraction
+        amount_tokens = {token.i for token in doc if token.like_num or token.is_currency}
+        description = _extract_description(doc, category, amount_tokens)
+        date = _extract_date(text)  # use original text for date parsing
+        return {"action": "add", "amount": amount, "category": category, "date": date, "description": description}
+    
     if action == "set_budget":
-        warn_ratio = _extract_warn_ratio(normalized_text)
-        return {
-            "action": "set_budget",
-            "amount": amount,
-            "category": None if category == "uncategorized" else category,
-            "warn_ratio": warn_ratio,
-        }
-
+        amount = _extract_amount(doc)
+        category = _extract_category(doc)
+        warn_ratio = _extract_warn_ratio(doc)
+        return {"action": "set_budget", "amount": amount, "category": None if category == "uncategorized" else category, "warn_ratio": warn_ratio}
+    
     if action == "show_budgets":
-        return {
-            "action": "show_budgets",
-            "category": None if category == "uncategorized" else category,
-        }
-
+        category = _extract_category(doc)
+        return {"action": "show_budgets", "category": None if category == "uncategorized" else category}
+    
     if action == "remove_budget":
-        return {
-            "action": "remove_budget",
-            "category": None if category == "uncategorized" else category,
-        }
-
+        category = _extract_category(doc)
+        return {"action": "remove_budget", "category": None if category == "uncategorized" else category}
+    
     if action == "chart_summary":
         return {"action": "chart_summary"}
-
+    
     return {"action": action}
 
 def confirm_amount_flow(

@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -96,14 +97,28 @@ def _ensure_user_logging_column(conn: sqlite3.Connection) -> None:
 
 def create_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
     """Create connection."""
-    conn = sqlite3.connect(db_name)
+    conn = sqlite3.connect(db_name, timeout=10.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
+
+@contextmanager
+def get_db(db_name: str = DB_NAME):
+    """Context manager for DB connections."""
+    conn = create_connection(db_name)
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def create_table() -> None:
     """Create table."""
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             # Ensure legacy `user_id` column exists on `expenses` before applying schema
             # (older DBs may lack the column, and index creation below would fail).
             _ensure_expense_user_column(conn)
@@ -131,12 +146,12 @@ if not _skip_auto and not _running_pytest:
 def _normalize_date(date: Optional[str] = None) -> str:
     if date:
         return date
-    return datetime.now().strftime(DATE_FORMAT)
+    return datetime.now(timezone.utc).strftime(DATE_FORMAT)
 
 def _normalize_time(time_str: Optional[str] = None) -> str:
     if time_str:
         return time_str
-    return datetime.now().strftime("%H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%H:%M:%S")
 
 def create_user(email: str, password_hash: str, display_name: Optional[str] = None) -> Dict[str, Any]:
     """Create user."""
@@ -152,7 +167,7 @@ def create_user(email: str, password_hash: str, display_name: Optional[str] = No
         "log_opt_in": 0,
     }
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             conn.execute(
                 """
                 INSERT INTO users (id, email, password_hash, display_name, created_at, updated_at, log_opt_in)
@@ -167,12 +182,46 @@ def create_user(email: str, password_hash: str, display_name: Optional[str] = No
         log_error("Failed to create user (duplicate email?): %s", exc)
         raise
 
+_PUBLIC_USER_COLS = "id, email, display_name, created_at, updated_at, log_opt_in"
+
+def get_user_by_email_public(email: str) -> Optional[Dict[str, Any]]:
+    """Get user by email without sensitive fields."""
+    if not email:
+        return None
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                f"SELECT {_PUBLIC_USER_COLS} FROM users WHERE email = ?",
+                (email.lower().strip(),),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as exc:
+        log_error("Failed to fetch public user by email: %s", exc)
+        raise
+
+def get_user_by_id_public(user_id: str) -> Optional[Dict[str, Any]]:
+    """Get user by id without sensitive fields."""
+    if not user_id:
+        return None
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                f"SELECT {_PUBLIC_USER_COLS} FROM users WHERE id = ?",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as exc:
+        log_error("Failed to fetch public user by id: %s", exc)
+        raise
+
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     """Get user by email."""
     if not email:
         return None
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             cur = conn.execute(
                 "SELECT id, email, password_hash, display_name, created_at, updated_at, log_opt_in FROM users WHERE email = ?",
                 (email.lower().strip(),),
@@ -188,7 +237,7 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     if not user_id:
         return None
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             cur = conn.execute(
                 "SELECT id, email, password_hash, display_name, created_at, updated_at, log_opt_in FROM users WHERE id = ?",
                 (user_id,),
@@ -204,7 +253,7 @@ def touch_user_timestamp(user_id: str) -> None:
     if not user_id:
         return
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             conn.execute(
                 "UPDATE users SET updated_at = ? WHERE id = ?",
                 (_current_timestamp(), user_id),
@@ -219,7 +268,7 @@ def update_user_log_opt_in(user_id: str, enabled: bool) -> None:
     if not user_id:
         return
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             conn.execute(
                 "UPDATE users SET log_opt_in = ?, updated_at = ? WHERE id = ?",
                 (1 if enabled else 0, _current_timestamp(), user_id),
@@ -262,7 +311,7 @@ def log_command_event(
         "created_at": _current_timestamp(),
     }
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             conn.execute(
                 """
                 INSERT INTO command_logs (id, user_id, raw_text, parsed_payload, intent, entities, channel, confidence, metadata, created_at)
@@ -294,7 +343,7 @@ def add_expense(
         "user_id": user_id,
     }
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO expenses (amount, category, description, payment_method, date, time, user_id)
@@ -314,7 +363,7 @@ def get_total_today(user_id: Optional[str] = None) -> float:
     """Get total today."""
     today = _normalize_date()
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             sql = "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date = ?"
             params: List[Any] = [today]
             if user_id:
@@ -330,7 +379,7 @@ def get_total_today(user_id: Optional[str] = None) -> float:
 def get_total_by_category(user_id: Optional[str] = None) -> List[Tuple[str, float]]:
     """Get total by category."""
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             sql = (
                 """
                 SELECT category, COALESCE(SUM(amount), 0) AS total
@@ -353,7 +402,7 @@ def get_total_by_category(user_id: Optional[str] = None) -> List[Tuple[str, floa
 def get_recent_expenses(limit: int = 5, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get recent expenses."""
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             params: List[Any] = []
             sql = (
                 """
@@ -378,7 +427,7 @@ def get_recent_expenses(limit: int = 5, user_id: Optional[str] = None) -> List[D
 def delete_last_expense(user_id: Optional[str] = None) -> Optional[int]:
     """Delete last expense."""
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             sql = "SELECT id FROM expenses {where} ORDER BY date DESC, time DESC, id DESC LIMIT 1"
             where_clause = "WHERE user_id = ?" if user_id else ""
             params: Tuple[Any, ...] = (user_id,) if user_id else ()
@@ -403,7 +452,7 @@ def delete_last_expense(user_id: Optional[str] = None) -> Optional[int]:
 def delete_expense(expense_id: int, user_id: Optional[str] = None) -> bool:
     """Delete expense."""
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             sql = "DELETE FROM expenses WHERE id = ?"
             params: List[Any] = [expense_id]
             if user_id:
@@ -433,6 +482,12 @@ def update_expense(
     params: List[Any] = []
 
     if amount is not None:
+        try:
+            amount = float(amount)
+        except (ValueError, TypeError):
+            raise ValueError("Amount must be a number.")
+        if amount <= 0:
+            raise ValueError("Amount must be positive.")
         fields.append("amount = ?")
         params.append(amount)
     if category:
@@ -462,7 +517,7 @@ def update_expense(
         params.append(user_id)
 
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             cur = conn.execute(sql, params)
             conn.commit()
         updated = cur.rowcount > 0
@@ -474,10 +529,10 @@ def update_expense(
 
 def get_weekly_summary(weeks: int = 1, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get weekly summary."""
-    end_date = datetime.now()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(weeks=weeks)
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             sql = (
                 """
                 SELECT date, COALESCE(SUM(amount), 0) AS total
@@ -506,7 +561,7 @@ def get_monthly_summary(
     user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get monthly summary."""
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     year = year or now.year
     month = month or now.month
     start = datetime(year, month, 1)
@@ -515,7 +570,7 @@ def get_monthly_summary(
     else:
         end = datetime(year, month + 1, 1) - timedelta(days=1)
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             sql = (
                 """
                 SELECT date, COALESCE(SUM(amount), 0) AS total
@@ -545,7 +600,7 @@ def get_monthly_totals_by_category(
     user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get monthly totals by category."""
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     year = year or now.year
     month = month or now.month
     start = datetime(year, month, 1)
@@ -554,7 +609,7 @@ def get_monthly_totals_by_category(
     else:
         end = datetime(year, month + 1, 1)
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             sql = (
                 """
                 SELECT category, COALESCE(SUM(amount), 0) AS total
@@ -580,7 +635,7 @@ def get_monthly_totals_by_category(
 def get_all_expenses(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get all expenses."""
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             sql = (
                 """
                 SELECT id, amount, category, description, payment_method, date, time
@@ -603,7 +658,7 @@ def get_user_budgets(user_id: str) -> List[Dict[str, Any]]:
     if not user_id:
         return []
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             cur = conn.execute(
                 "SELECT category, limit_amount, warn_ratio FROM user_budgets WHERE user_id = ?",
                 (user_id,)
@@ -618,7 +673,7 @@ def set_user_budget(user_id: str, category: str, limit_amount: float, warn_ratio
     if not user_id or not category:
         return
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             conn.execute(
                 """
                 INSERT INTO user_budgets (user_id, category, limit_amount, warn_ratio, updated_at)
@@ -640,7 +695,7 @@ def remove_user_budget(user_id: str, category: str) -> bool:
     if not user_id or not category:
         return False
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             cur = conn.execute(
                 "DELETE FROM user_budgets WHERE user_id = ? AND category = ?",
                 (user_id, category.lower())
@@ -656,7 +711,7 @@ def get_last_command(user_id: str) -> Optional[Dict[str, Any]]:
     if not user_id:
         return None
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             cur = conn.execute(
                 "SELECT last_command FROM user_states WHERE user_id = ?",
                 (user_id,)
@@ -674,7 +729,7 @@ def set_last_command(user_id: str, payload: Dict[str, Any]) -> None:
     if not user_id:
         return
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             conn.execute(
                 """
                 INSERT INTO user_states (user_id, last_command, updated_at)

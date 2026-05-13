@@ -9,11 +9,20 @@ from typing import Any, Dict, List, Optional
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import time
+import threading
 import pandas as pd
 
 from config import CHART_DIR
-from database import create_connection
+from database import get_db
 from logger import log_error
+
+_plot_lock = threading.Lock()
+
+def _chart_needs_update(path: str, max_age_seconds: int = 300) -> bool:
+    if not os.path.exists(path):
+        return True
+    return (time.time() - os.path.getmtime(path)) > max_age_seconds
 
 def ensure_chart_dir() -> str:
     """Ensure the directory for saving charts exists.
@@ -37,7 +46,7 @@ def fetch_dataframe(query: str, params: tuple = ()) -> pd.DataFrame:
 
     """
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             df = pd.read_sql_query(query, conn, params=params)
         return df
     except sqlite3.Error as exc:
@@ -57,12 +66,15 @@ def plot_category_pie(df: pd.DataFrame, filename: str) -> Optional[str]:
     """
     if df.empty:
         return None
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.pie(df["total"], labels=df["category"], autopct="%1.1f%%", startangle=140)
-    ax.set_title("Spending by Category")
     path = os.path.join(ensure_chart_dir(), filename)
-    fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
+    if not _chart_needs_update(path):
+        return path
+    with _plot_lock:
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.pie(df["total"], labels=df["category"], autopct="%1.1f%%", startangle=140)
+        ax.set_title("Spending by Category")
+        fig.savefig(path, bbox_inches="tight")
+        plt.close(fig)
     return path
 
 def plot_daily_bar(df: pd.DataFrame, filename: str) -> Optional[str]:
@@ -78,16 +90,19 @@ def plot_daily_bar(df: pd.DataFrame, filename: str) -> Optional[str]:
     """
     if df.empty:
         return None
-    df = df.sort_values("date")
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.bar(df["date"], df["total"], color="#4e79a7")
-    ax.set_title("Daily Spending")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Amount (₹)")
-    ax.tick_params(axis="x", rotation=45)
     path = os.path.join(ensure_chart_dir(), filename)
-    fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
+    if not _chart_needs_update(path):
+        return path
+    with _plot_lock:
+        df = df.sort_values("date")
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.bar(df["date"], df["total"], color="#4e79a7")
+        ax.set_title("Daily Spending")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Amount (₹)")
+        ax.tick_params(axis="x", rotation=45)
+        fig.savefig(path, bbox_inches="tight")
+        plt.close(fig)
     return path
 
 def get_category_breakdown(user_id: Optional[str] = None) -> pd.DataFrame:
