@@ -8,19 +8,19 @@ _action_matcher: Optional[Matcher] = None
 _category_matcher: Optional[PhraseMatcher] = None
 
 CATEGORY_SYNONYMS = {
-    "food": {"food", "meal", "meals", "lunch", "dinner", "breakfast", "snack", "snacks", "restaurant", "restaurants", "groceries", "grocery", "coffee", "tea", "drink", "drinks"},
-    "transport": {"transport", "travel", "taxi", "cab", "uber", "ola", "bus", "train", "metro", "ride", "rides", "petrol", "diesel", "fuel", "gas", "commute"},
-    "entertainment": {"entertainment", "movie", "movies", "netflix", "prime", "hotstar", "ott", "show", "shows", "concert", "gaming", "game", "games", "fun"},
-    "shopping": {"shopping", "amazon", "mall", "purchase", "purchases", "bought", "buy", "buying", "retail", "clothes", "clothing", "apparel"},
-    "utilities": {"utility", "utilities", "electricity", "power", "water", "gas", "internet", "wifi", "broadband", "phone", "mobile", "recharge", "bill", "bills"},
-    "health": {"health", "doctor", "hospital", "medical", "medicine", "medicines", "pharmacy", "clinic", "fitness", "gym"},
-    "education": {"education", "study", "studies", "course", "courses", "tuition", "class", "classes", "training", "book", "books"},
-    "rent": {"rent", "renting", "lease", "housing", "house", "apartment", "flat"},
-    "savings": {"savings", "investment", "invest", "investing", "mutual fund", "fixed deposit", "fd", "rd", "sip"},
-    "personal": {"personal", "care", "salon", "beauty", "spa", "grooming"},
+    "food": {"food", "meal", "meals", "lunch", "dinner", "breakfast", "snack", "snacks", "restaurant", "restaurants", "groceries", "grocery", "coffee", "tea", "drink", "drinks", "swiggy", "zomato", "blinkit", "zepto", "instamart", "bbnow", "eatfit", "dominos", "kfc"},
+    "transport": {"transport", "travel", "taxi", "cab", "uber", "ola", "bus", "train", "metro", "ride", "rides", "petrol", "diesel", "fuel", "gas", "commute", "rapido", "namma yatri", "yulu", "redbus", "irctc", "makemytrip", "goibibo"},
+    "entertainment": {"entertainment", "movie", "movies", "netflix", "prime", "hotstar", "ott", "show", "shows", "concert", "gaming", "game", "games", "fun", "bookmyshow", "bms", "jiocinema", "sonyliv", "zee5", "paytm movies"},
+    "shopping": {"shopping", "amazon", "mall", "purchase", "purchases", "bought", "buy", "buying", "retail", "clothes", "clothing", "apparel", "flipkart", "myntra", "meesho", "ajio", "nykaa", "tata cliq"},
+    "utilities": {"utility", "utilities", "electricity", "power", "water", "gas", "internet", "wifi", "broadband", "phone", "mobile", "recharge", "bill", "bills", "paytm", "phonepe", "gpay", "cred", "google pay", "jio", "airtel", "vi"},
+    "health": {"health", "doctor", "hospital", "medical", "medicine", "medicines", "pharmacy", "clinic", "fitness", "gym", "pharmeasy", "1mg", "apollo", "netmeds", "practo", "cultfit"},
+    "education": {"education", "study", "studies", "course", "courses", "tuition", "class", "classes", "training", "book", "books", "udemy", "coursera", "byjus", "unacademy", "vedantu"},
+    "rent": {"rent", "renting", "lease", "housing", "house", "apartment", "flat", "nobroker", "housing.com"},
+    "savings": {"savings", "investment", "invest", "investing", "mutual fund", "fixed deposit", "fd", "rd", "sip", "zerodha", "groww", "upstox", "kuvera", "indmoney"},
+    "personal": {"personal", "care", "salon", "beauty", "spa", "grooming", "urban company"},
     "gifts": {"gift", "gifts", "present", "presents"},
     "charity": {"charity", "donation", "donations"},
-    "insurance": {"insurance", "premium", "policy"},
+    "insurance": {"insurance", "premium", "policy", "lic", "policybazaar", "acko"},
     "fees": {"fee", "fees", "subscription", "subscriptions"},
 }
 

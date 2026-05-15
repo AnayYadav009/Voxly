@@ -4,6 +4,9 @@ Loads environment variables and sets up project-wide constants,
 ensuring security defaults are respected depending on the environment.
 """
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB_NAME = "expenses.db"
 LOG_DIR = "logs"
