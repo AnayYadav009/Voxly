@@ -69,6 +69,17 @@ CREATE TABLE IF NOT EXISTS user_states (
     updated_at TEXT NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS insights (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    insight_text TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id, expires_at);
 """
 
 def _current_timestamp() -> str:
@@ -632,6 +643,108 @@ def get_monthly_totals_by_category(
         log_error("Failed to fetch monthly category totals: %s", exc)
         raise
 
+def get_recurring_expenses(
+    user_id: Optional[str] = None,
+    lookback_days: int = 90,
+    min_occurrences: int = 2,
+    gap_min_days: int = 25,
+    gap_max_days: int = 38,
+    amount_tolerance: float = 0.15,
+) -> List[Dict[str, Any]]:
+    """
+    Detect likely recurring expenses in the last `lookback_days` days.
+
+    Groups by (category, amount_bucket) where amount_bucket = round(amount, -2)
+    (i.e. nearest 100). Then checks if consecutive occurrences are spaced
+    gap_min_days..gap_max_days apart.
+
+    Returns a list of dicts:
+        category, representative_amount, occurrences, avg_gap_days,
+        last_date, next_expected_date, confidence ('high'|'medium'|'low')
+    """
+    from datetime import datetime, timedelta
+
+    start_date = (datetime.now() - timedelta(days=lookback_days)).strftime(DATE_FORMAT)
+    try:
+        with get_db() as conn:
+            where = "WHERE date >= ?"
+            params: List[Any] = [start_date]
+            if user_id:
+                where += " AND user_id = ?"
+                params.append(user_id)
+            cur = conn.execute(
+                f"""
+                SELECT category,
+                       ROUND(amount / 100.0) * 100 AS amount_bucket,
+                       amount,
+                       date
+                FROM expenses
+                {where}
+                ORDER BY category, amount_bucket, date
+                """,
+                params,
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+    except sqlite3.Error as exc:
+        log_error("Failed to fetch recurring expense candidates: %s", exc)
+        return []
+
+    # Group by (category, amount_bucket)
+    from itertools import groupby
+    from math import isclose
+
+    groups: Dict[tuple, List[dict]] = {}
+    for row in rows:
+        key = (row["category"], row["amount_bucket"])
+        groups.setdefault(key, []).append(row)
+
+    results = []
+    for (category, bucket), entries in groups.items():
+        if len(entries) < min_occurrences:
+            continue
+
+        # Sort by date and compute consecutive gaps
+        entries.sort(key=lambda r: r["date"])
+        dates = [datetime.strptime(r["date"], DATE_FORMAT) for r in entries]
+        gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+
+        if not gaps:
+            continue
+
+        periodic_gaps = [g for g in gaps if gap_min_days <= g <= gap_max_days]
+        if len(periodic_gaps) < max(1, len(gaps) // 2):
+            # Fewer than half the gaps are periodic — skip
+            continue
+
+        avg_gap = sum(periodic_gaps) / len(periodic_gaps)
+        rep_amount = float(entries[-1]["amount"])  # most recent amount
+        last_date = dates[-1]
+        next_expected = last_date + timedelta(days=round(avg_gap))
+
+        # Confidence
+        periodicity_ratio = len(periodic_gaps) / max(len(gaps), 1)
+        if periodicity_ratio >= 0.8 and len(entries) >= 3:
+            confidence = "high"
+        elif periodicity_ratio >= 0.6:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+        results.append({
+            "category": category,
+            "representative_amount": round(rep_amount, 2),
+            "occurrences": len(entries),
+            "avg_gap_days": round(avg_gap, 1),
+            "last_date": last_date.strftime(DATE_FORMAT),
+            "next_expected_date": next_expected.strftime(DATE_FORMAT),
+            "confidence": confidence,
+        })
+
+    # Sort by confidence then by next expected date
+    order = {"high": 0, "medium": 1, "low": 2}
+    results.sort(key=lambda r: (order[r["confidence"]], r["next_expected_date"]))
+    return results
+
 def get_all_expenses(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get all expenses."""
     try:
@@ -744,3 +857,38 @@ def set_last_command(user_id: str, payload: Dict[str, Any]) -> None:
     except sqlite3.Error as exc:
         log_error("Failed to set last command: %s", exc)
         raise
+
+def get_cached_insight(user_id: str) -> Optional[str]:
+    """Return the cached insight text if it has not expired, else None."""
+    now = _current_timestamp()
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                "SELECT insight_text FROM insights WHERE user_id = ? AND expires_at > ? ORDER BY generated_at DESC LIMIT 1",
+                (user_id, now),
+            )
+            row = cur.fetchone()
+        return row["insight_text"] if row else None
+    except sqlite3.Error as exc:
+        log_error("Failed to fetch cached insight: %s", exc)
+        return None
+
+
+def save_insight(user_id: str, insight_text: str, ttl_days: int = 7) -> None:
+    """Persist a new insight, replacing any existing ones for this user."""
+    from datetime import timedelta
+    now_dt = datetime.utcnow()
+    expires_dt = now_dt + timedelta(days=ttl_days)
+    now_str = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    expires_str = expires_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        with get_db() as conn:
+            # Delete old insights for this user first
+            conn.execute("DELETE FROM insights WHERE user_id = ?", (user_id,))
+            conn.execute(
+                "INSERT INTO insights (user_id, insight_text, generated_at, expires_at) VALUES (?, ?, ?, ?)",
+                (user_id, insight_text, now_str, expires_str),
+            )
+            conn.commit()
+    except sqlite3.Error as exc:
+        log_error("Failed to save insight: %s", exc)

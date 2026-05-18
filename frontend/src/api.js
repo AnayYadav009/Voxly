@@ -1,41 +1,8 @@
 const DEFAULT_TIMEOUT = 10000;
-const ACCESS_TOKEN_KEY = 'voxly.accessToken';
-const REFRESH_TOKEN_KEY = 'voxly.refreshToken';
 
 let accessToken = null;
-let refreshToken = null;
 let refreshPromise = null;
 let authFailureHandler = null;
-
-const hasWindow = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-
-const bootstrapTokens = () => {
-  if (!hasWindow()) {
-    return;
-  }
-  accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY) || null;
-  refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY) || null;
-};
-
-bootstrapTokens();
-
-const persistTokens = ({ accessToken: nextAccess = null, refreshToken: nextRefresh = null } = {}) => {
-  accessToken = nextAccess || null;
-  refreshToken = nextRefresh || null;
-  if (!hasWindow()) {
-    return;
-  }
-  if (accessToken) {
-    window.localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-  } else {
-    window.localStorage.removeItem(ACCESS_TOKEN_KEY);
-  }
-  if (refreshToken) {
-    window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-  } else {
-    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-  }
-};
 
 const notifyAuthFailure = () => {
   if (typeof authFailureHandler === 'function') {
@@ -53,27 +20,21 @@ export const onAuthFailure = (callback) => {
 };
 
 const clearAuthState = ({ notify = true } = {}) => {
-  persistTokens({ accessToken: null, refreshToken: null });
+  accessToken = null;
   if (notify) {
     notifyAuthFailure();
   }
 };
 
-export const getStoredTokens = () => ({ accessToken, refreshToken });
+export const getStoredTokens = () => ({ accessToken, refreshToken: null });
 
 export const persistAuthTokens = (payload = {}) => {
-  persistTokens({
-    accessToken: payload.access_token || payload.accessToken || null,
-    refreshToken: payload.refresh_token || payload.refreshToken || null,
-  });
+  accessToken = payload.access_token || payload.accessToken || null;
 };
 
 export const clearStoredAuthTokens = (options = {}) => clearAuthState(options);
 
 const attemptRefresh = async () => {
-  if (!refreshToken) {
-    return false;
-  }
   if (refreshPromise) {
     return refreshPromise;
   }
@@ -82,7 +43,7 @@ const attemptRefresh = async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
-    body: JSON.stringify({ refresh_token: refreshToken }),
+    body: JSON.stringify({}),
   })
     .then(async (response) => {
       const data = await response.json().catch(() => null);
@@ -163,7 +124,13 @@ async function apiFetch(path, options = {}) {
 }
 
 export const getSummary = () => apiFetch('/api/summary');
-export const getRecent = (limit = 10) => apiFetch(`/api/recent?limit=${limit}`);
+export const getRecent = (limit = 10, { from, to, category } = {}) => {
+  const params = new URLSearchParams({ limit });
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (category) params.set('category', category);
+  return apiFetch(`/api/recent?${params}`);
+};
 export const getCategoryBreakdown = () => apiFetch('/api/charts/category-breakdown');
 export const getDailyTotals = (days = 7) => apiFetch(`/api/charts/daily-totals?days=${days}`);
 export const getMonthlyTotals = (months = 6) => apiFetch(`/api/charts/monthly-totals?months=${months}`);
@@ -172,6 +139,13 @@ export const getBudgets = () => apiFetch('/api/budgets');
 export const addExpense = (payload) =>
   apiFetch('/api/add', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+export const updateExpense = (id, payload) =>
+  apiFetch(`/api/expenses/${id}`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
@@ -213,5 +187,10 @@ export const updatePreferences = (payload) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+
+export const getForecast = () => apiFetch('/api/forecast');
+export const getRecurring = () => apiFetch('/api/recurring');
+export const getInsight = (refresh = false) =>
+  apiFetch(`/api/insight${refresh ? '?refresh=1' : ''}`);
 
 export default apiFetch;

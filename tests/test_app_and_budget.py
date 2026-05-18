@@ -301,3 +301,20 @@ def test_voice_chart_summary_returns_series(temp_db):
     assert "chart_series" in payload
     assert payload["chart_series"]["category_breakdown"]
     assert payload["reply"]
+
+def test_recurring_detection_finds_monthly_pattern(temp_db):
+    from database import get_recurring_expenses
+    from datetime import datetime, timedelta
+
+    # Insert 3 expenses ~30 days apart in the same category
+    base = datetime.now()
+    for offset in [0, 30, 60]:
+        date_str = (base - timedelta(days=offset)).strftime(DATE_FORMAT)
+        _add_expense(500, "utilities", date_str)
+
+    results = get_recurring_expenses(lookback_days=90, min_occurrences=2)
+    categories = [r["category"] for r in results]
+    assert "utilities" in categories
+    match = next(r for r in results if r["category"] == "utilities")
+    assert match["occurrences"] == 3
+    assert 25 <= match["avg_gap_days"] <= 38

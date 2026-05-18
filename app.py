@@ -61,12 +61,15 @@ from visual_module import (
     get_recent_daily_totals,
 )
 from logger import log_error, log_info
-from voice_module import parse_expense
+from groq_parser import parse_expense_groq as parse_expense
+from database import get_cached_insight, save_insight
+from insight_module import generate_insight
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
 ALLOWED_ORIGINS = os.environ.get("VOXLY_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 ensure_dirs()  # make sure chart directory exists at startup
@@ -147,13 +150,19 @@ def _auth_success_response(user: Dict[str, Any]):
     access_token = create_access_token(user["id"])
     refresh_token = create_refresh_token(user["id"])
     touch_user_timestamp(user["id"])
-    return jsonify(
-        {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "user": _public_user_payload(user),
-        }
+    resp = jsonify({
+        "access_token": access_token,
+        "user": _public_user_payload(user),
+    })
+    resp.set_cookie(
+        "voxly_refresh",
+        refresh_token,
+        httponly=True,
+        samesite="Strict",
+        secure=os.environ.get("FLASK_ENV") == "production",
+        max_age=60 * 60 * 24 * 7,  # 7 days
     )
+    return resp
 
 
 def _should_log_commands(user: Optional[Dict[str, Any]]) -> bool:
@@ -266,13 +275,36 @@ def _safe_limit(value: Any, default: int = 5, *, minimum: int = 1, maximum: int 
         return default
     return max(minimum, min(numeric, maximum))
 
+def _fetch_totals(user_id: Optional[str] = None):
+    """Return (total_today, category_totals) in a single DB connection."""
+    from database import create_connection, _normalize_date
+    today = _normalize_date()
+    with create_connection() as conn:
+        params_today = [today]
+        sql_today = "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date = ?"
+        if user_id:
+            sql_today += " AND user_id = ?"
+            params_today.append(user_id)
+        total_today = float(conn.execute(sql_today, params_today).fetchone()[0] or 0)
+
+        where = "WHERE user_id = ?" if user_id else ""
+        params_cat = (user_id,) if user_id else ()
+        rows = conn.execute(
+            f"SELECT category, COALESCE(SUM(amount),0) AS total FROM expenses {where} "
+            f"GROUP BY category ORDER BY total DESC",
+            params_cat,
+        ).fetchall()
+        category_totals = [(r["category"], float(r["total"])) for r in rows]
+    return total_today, category_totals
+
 def _build_dashboard_context(user_id: Optional[str] = None):
     charts = generate_all_charts(user_id=user_id)
     budget_statuses = evaluate_monthly_budgets(user_id=user_id) if user_id else []
+    total_today, category_totals = _fetch_totals(user_id)
     return {
-        "total_today": get_total_today(user_id=user_id),
+        "total_today": total_today,
         "monthly_total": get_monthly_total(user_id=user_id),
-        "category_totals": get_total_by_category(user_id=user_id),
+        "category_totals": category_totals,
         "recent_expenses": get_recent_expenses(5, user_id=user_id),
         "weekly_summary": get_weekly_summary_text(user_id=user_id),
         "monthly_summary": get_monthly_summary_text(user_id=user_id),
@@ -358,8 +390,33 @@ def api_recent():
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
+    user_id = user["id"]
     limit = _safe_limit(request.args.get("limit"), default=5)
-    return jsonify(get_recent_expenses(limit, user_id=user["id"]))
+    date_from = request.args.get("from")
+    date_to = request.args.get("to")
+    category = request.args.get("category", "").strip().lower() or None
+
+    from database import create_connection
+    conditions = ["user_id = ?"]
+    params = [user_id]
+    if date_from:
+        conditions.append("date >= ?")
+        params.append(date_from)
+    if date_to:
+        conditions.append("date <= ?")
+        params.append(date_to)
+    if category:
+        conditions.append("LOWER(category) = ?")
+        params.append(category)
+    params.append(limit)
+    where = " AND ".join(conditions)
+    with create_connection() as conn:
+        rows = conn.execute(
+            f"SELECT id, amount, category, description, payment_method, date, time "
+            f"FROM expenses WHERE {where} ORDER BY date DESC, time DESC, id DESC LIMIT ?",
+            params,
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 @app.route("/api/charts/category-breakdown")
 def api_chart_category_breakdown():
@@ -405,6 +462,165 @@ def api_chart_monthly_totals():
     payload["generated_at"] = datetime.now(timezone.utc).isoformat()
     payload["months"] = months
     return jsonify(payload)
+
+@app.route("/api/forecast")
+def api_forecast():
+    """
+    Linear regression over the last N months to project current month total.
+    Returns:
+        projected_total   — estimated spend by end of current month
+        confidence        — 'low' | 'medium' | 'high' based on R²
+        trend             — 'up' | 'down' | 'flat'
+        monthly_series    — the raw data used for the regression
+        days_remaining    — days left in current month (for context)
+    """
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+
+    import numpy as np
+    from datetime import date
+
+    user_id = user["id"]
+
+    # Fetch last 6 complete months + current partial month
+    df = get_monthly_totals_by_month(months=7, user_id=user_id)
+
+    if df.empty or len(df) < 2:
+        return jsonify({
+            "projected_total": None,
+            "confidence": "low",
+            "trend": "flat",
+            "monthly_series": [],
+            "days_remaining": None,
+            "message": "Not enough data yet. Add expenses across at least 2 months for a forecast.",
+        })
+
+    today = date.today()
+    current_month_key = today.strftime("%Y-%m")
+
+    # Separate complete months from the current partial month
+    complete = df[df["month"] != current_month_key].copy()
+    current_rows = df[df["month"] == current_month_key]
+    current_spent = float(current_rows["total"].iloc[0]) if not current_rows.empty else 0.0
+
+    series = [
+        {"month": str(row["month"]), "total": float(row["total"])}
+        for _, row in df.iterrows()
+    ]
+
+    if len(complete) < 2:
+        return jsonify({
+            "projected_total": None,
+            "confidence": "low",
+            "trend": "flat",
+            "monthly_series": series,
+            "days_remaining": None,
+            "message": "Not enough complete months for a forecast.",
+        })
+
+    # Regression over complete months
+    x = np.arange(len(complete), dtype=float)
+    y = complete["total"].astype(float).values
+
+    coeffs = np.polyfit(x, y, 1)        # [slope, intercept]
+    slope = float(coeffs[0])
+    next_x = float(len(complete))
+    trend_prediction = float(np.polyval(coeffs, next_x))
+
+    # R² for confidence
+    y_mean = float(np.mean(y))
+    ss_tot = float(np.sum((y - y_mean) ** 2))
+    ss_res = float(np.sum((y - np.polyval(coeffs, x)) ** 2))
+    r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+    if r_squared >= 0.75:
+        confidence = "high"
+    elif r_squared >= 0.4:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    # Adjust projection for how far through current month we are
+    import calendar
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    days_elapsed = today.day
+    days_remaining = days_in_month - days_elapsed
+
+    # Daily run rate this month (if we have data) vs regression prediction
+    if current_spent > 0 and days_elapsed > 0:
+        daily_rate = current_spent / days_elapsed
+        run_rate_projection = current_spent + (daily_rate * days_remaining)
+        # Blend: 60% run rate (more responsive), 40% regression (smoother)
+        projected_total = round(0.6 * run_rate_projection + 0.4 * trend_prediction, 2)
+    else:
+        projected_total = round(trend_prediction, 2)
+
+    if slope > 50:
+        trend = "up"
+    elif slope < -50:
+        trend = "down"
+    else:
+        trend = "flat"
+
+    return jsonify({
+        "projected_total": projected_total,
+        "current_spent": round(current_spent, 2),
+        "confidence": confidence,
+        "r_squared": round(r_squared, 4),
+        "trend": trend,
+        "slope": round(slope, 2),
+        "monthly_series": series,
+        "days_remaining": days_remaining,
+        "days_elapsed": days_elapsed,
+    })
+
+@app.route("/api/recurring")
+def api_recurring():
+    """Detect recurring expenses and return them with next expected dates."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    from database import get_recurring_expenses
+    items = get_recurring_expenses(user_id=user["id"])
+    return jsonify({"items": items, "count": len(items)})
+
+@app.route("/api/insight")
+def api_insight():
+    """
+    Return the cached weekly AI insight, or generate a fresh one.
+    Pass ?refresh=1 to force regeneration.
+    """
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+
+    user_id = user["id"]
+    force_refresh = request.args.get("refresh") == "1"
+
+    if not force_refresh:
+        cached = get_cached_insight(user_id)
+        if cached:
+            return jsonify({"insight": cached, "cached": True})
+
+    # Generate fresh insight
+    try:
+        daily_data = _serialize_daily_totals(7, user_id=user_id)["items"]
+        cat_data = _serialize_category_breakdown(user_id=user_id)["items"]
+
+        if not daily_data and not cat_data:
+            return jsonify({
+                "insight": "Add some expenses this week to see your first spending insight.",
+                "cached": False,
+            })
+
+        insight_text = generate_insight(daily_data, cat_data)
+        save_insight(user_id, insight_text, ttl_days=7)
+        return jsonify({"insight": insight_text, "cached": False})
+
+    except Exception as exc:
+        log_error("Insight endpoint failed: %s", exc)
+        return jsonify({"insight": None, "error": "Could not generate insight."}), 500
 
 @app.route("/api/auth/register", methods=["POST"])
 @limiter.limit("5 per minute")
@@ -489,14 +705,19 @@ def api_auth_logout():
     if not user:
         return _unauthorized_response()
     touch_user_timestamp(user["id"])
-    return jsonify({"status": "logged_out"})
+    resp = jsonify({"status": "logged_out"})
+    resp.delete_cookie("voxly_refresh", samesite="Strict")
+    return resp
 
 
 @app.route("/api/auth/refresh", methods=["POST"])
 def api_auth_refresh():
     """Handle API auth refresh."""
-    data = request.get_json(silent=True) or {}
-    refresh_token = data.get("refresh_token") or _extract_bearer_token()
+    # Primary: HttpOnly cookie. Fallback: JSON body (backward compat).
+    refresh_token = request.cookies.get("voxly_refresh")
+    if not refresh_token:
+        data = request.get_json(silent=True) or {}
+        refresh_token = data.get("refresh_token") or _extract_bearer_token()
     user_id = decode_refresh_token(refresh_token)
     if not user_id:
         return _unauthorized_response()
@@ -506,13 +727,19 @@ def api_auth_refresh():
     access_token = create_access_token(user_id)
     new_refresh_token = create_refresh_token(user_id)
     touch_user_timestamp(user_id)
-    return jsonify(
-        {
-            "access_token": access_token,
-            "refresh_token": new_refresh_token,
-            "user": _public_user_payload(user),
-        }
+    resp = jsonify({
+        "access_token": access_token,
+        "user": _public_user_payload(user),
+    })
+    resp.set_cookie(
+        "voxly_refresh",
+        new_refresh_token,
+        httponly=True,
+        samesite="Strict",
+        secure=os.environ.get("FLASK_ENV") == "production",
+        max_age=60 * 60 * 24 * 7,
     )
+    return resp
 
 @app.route("/api/regenerate-charts", methods=["POST"])
 def api_regenerate_charts():
@@ -560,6 +787,59 @@ def api_add():
     except Exception as exc:
         log_error("Add expense API failed: %s", exc)
         return jsonify({"error": "Failed to add expense."}), 500
+
+@app.route("/api/expenses/<int:expense_id>", methods=["PATCH"])
+def api_update_expense(expense_id: int):
+    """Handle API update expense."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    data = request.get_json(silent=True) or {}
+    from database import update_expense
+    try:
+        amount = float(data["amount"]) if "amount" in data else None
+        updated = update_expense(
+            expense_id,
+            amount=amount,
+            category=data.get("category"),
+            description=data.get("description"),
+            user_id=user["id"],
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid field value."}), 400
+    except Exception as exc:
+        log_error("Update expense failed: %s", exc)
+        return jsonify({"error": "Failed to update expense."}), 500
+    if not updated:
+        return jsonify({"error": "Expense not found."}), 404
+    return jsonify({"message": "Expense updated."})
+
+@app.route("/api/export")
+def api_export():
+    """Handle API export."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    from database import get_all_expenses
+    import csv, io
+    fmt = request.args.get("format", "csv").lower()
+    if fmt != "csv":
+        return jsonify({"error": "Only format=csv is supported."}), 400
+    rows = get_all_expenses(user_id=user["id"])
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["id", "date", "time", "amount", "category", "description", "payment_method"],
+        extrasaction="ignore",
+    )
+    writer.writeheader()
+    writer.writerows(rows)
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=voxly_expenses.csv"},
+    )
 
 def _refresh_dashboard(user_id: Optional[str] = None) -> Dict[str, Any]:
     """Return a fresh snapshot of dashboard data for the frontend."""
@@ -734,7 +1014,27 @@ def api_voice_command():
                 description=parsed.get("description"),
                 user_id=user_id,
             )
+
+            # Handle multi-item commands parsed by Groq
+            extra_expenses = parsed.get("_additional_expenses") or []
+            extra_ids = []
+            for extra in extra_expenses:
+                try:
+                    eid = add_expense(
+                        float(extra.get("amount", 0)),
+                        extra.get("category", "uncategorized"),
+                        date=extra.get("date"),
+                        description=extra.get("description"),
+                        user_id=user_id,
+                    )
+                    extra_ids.append(eid)
+                except Exception as exc:
+                    log_error("Failed to add extra expense from multi-item command: %s", exc)
+
             response["reply"] = f"Added ₹{float(amount):.2f} to {category}."
+            if extra_ids:
+                response["additional_expense_ids"] = extra_ids
+                response["reply"] = f"Added {1 + len(extra_ids)} expenses."
             response["expense_id"] = expense_id
             dashboard = _refresh_dashboard(user_id=user_id)
             response["dashboard"] = dashboard

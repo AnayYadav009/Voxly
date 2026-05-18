@@ -15,6 +15,7 @@ import {
   PieChart,
   BarChart3,
   Plus,
+  RefreshCw,
 } from 'lucide-react';
 
 import {
@@ -25,7 +26,11 @@ import {
   getMonthlyTotals,
   getRecent,
   getSummary,
+  getForecast,
+  getRecurring,
+  getInsight,
   sendVoiceCommand as apiSendVoiceCommand,
+  updateExpense as apiUpdateExpense,
 } from './api';
 import ConfirmDialog from './components/ConfirmDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -288,6 +293,14 @@ const VoiceFinanceDashboard = ({
   const [submitting, setSubmitting] = useState(false);
   const [budgetWarning, setBudgetWarning] = useState(null);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ amount: '', category: '', description: '' });
+  const [expenseFilter, setExpenseFilter] = useState({ from: '', to: '', category: '' });
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [forecast, setForecast] = useState(null);
+  const [recurring, setRecurring] = useState([]);
+  const [insight, setInsight] = useState(null);
+  const [insightLoading, setInsightLoading] = useState(false);
   const recognitionRef = useRef(null);
   const toastTimerRef = useRef(null);
   const displayName = user?.display_name || user?.displayName || user?.email || 'You';
@@ -300,7 +313,7 @@ const VoiceFinanceDashboard = ({
     setLoading(true);
     setError(null);
     try {
-      const [summaryResult, recentResult, categoryResult, dailyResult, monthlyResult, budgetResult] =
+      const [summaryResult, recentResult, categoryResult, dailyResult, monthlyResult, budgetResult, forecastResult, recurringResult, insightResult] =
         await Promise.allSettled([
           getSummary(),
           getRecent(RECENT_LIMIT),
@@ -308,6 +321,9 @@ const VoiceFinanceDashboard = ({
           getDailyTotals(7),
           getMonthlyTotals(6),
           getBudgets(),
+          getForecast(),
+          getRecurring(),
+          getInsight(),
         ]);
 
       let loadError = null;
@@ -371,6 +387,24 @@ const VoiceFinanceDashboard = ({
         setUserBudgets({});
       }
 
+      if (forecastResult.status === 'fulfilled') {
+        setForecast(forecastResult.value);
+      } else {
+        setForecast(null);
+      }
+
+      if (recurringResult.status === 'fulfilled') {
+        setRecurring(recurringResult.value?.items || []);
+      } else {
+        setRecurring([]);
+      }
+
+      if (insightResult.status === 'fulfilled') {
+        setInsight(insightResult.value?.insight || null);
+      } else {
+        setInsight(null);
+      }
+
       if (loadError) {
         setError(loadError);
       }
@@ -405,6 +439,34 @@ const VoiceFinanceDashboard = ({
       }
     };
   }, [toast]);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined;
+
+    const handler = (event) => {
+      if (event.data?.type === 'SYNC_COMPLETE') {
+        const count = event.data.count || 0;
+        setPendingSyncCount(0);
+        setToast({ type: 'success', message: `${count} offline expense${count !== 1 ? 's' : ''} synced.` });
+        loadData();
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, [loadData]);
+
+  const handleRefreshInsight = useCallback(async () => {
+    setInsightLoading(true);
+    try {
+      const result = await getInsight(true);
+      setInsight(result?.insight || null);
+    } catch {
+      // keep existing insight
+    } finally {
+      setInsightLoading(false);
+    }
+  }, []);
 
   const handleVoiceResponse = useCallback(
     async (data) => {
@@ -626,9 +688,15 @@ const VoiceFinanceDashboard = ({
         amount: amountValue,
         category: newExpense.category,
       });
-      setToast({ type: 'success', message: payload.message || 'Expense added.' });
-      setNewExpense({ amount: '', category: newExpense.category });
-      await loadData();
+      if (payload.offline) {
+        setPendingSyncCount((n) => n + 1);
+        setToast({ type: 'info', message: 'Saved offline — will sync when connected.' });
+        setNewExpense({ amount: '', category: newExpense.category });
+      } else {
+        setToast({ type: 'success', message: payload.message || 'Expense added.' });
+        setNewExpense({ amount: '', category: newExpense.category });
+        await loadData();
+      }
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to add expense.' });
     } finally {
@@ -700,7 +768,7 @@ const VoiceFinanceDashboard = ({
   );
 
   const maxDaily = dailySpending.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
-  const maxMonthly = monthlyTrend.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
+  const maxMonthly = Math.max(monthlyTrend.reduce((max, entry) => Math.max(max, entry.amount), 0), forecast?.projected_total || 0) || 1;
   const loggingEnabled = Boolean(preferences?.log_opt_in);
 
   const handlePreferenceToggle = useCallback(async () => {
@@ -776,6 +844,25 @@ const VoiceFinanceDashboard = ({
           </div>
         </div>
 
+        {pendingSyncCount > 0 && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl flex items-center justify-between">
+            <span className="text-sm">
+              <strong>{pendingSyncCount}</strong> expense{pendingSyncCount !== 1 ? 's' : ''} saved offline — waiting to sync.
+            </span>
+            <button
+              type="button"
+              className="text-xs text-amber-700 underline"
+              onClick={() => {
+                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                  navigator.serviceWorker.controller.postMessage({ type: 'TRIGGER_SYNC' });
+                }
+              }}
+            >
+              Sync now
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="mb-6">
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
@@ -811,6 +898,29 @@ const VoiceFinanceDashboard = ({
                 ))}
               </ul>
             </div>
+          </div>
+        )}
+
+        {/* AI Financial Insight */}
+        {insight && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-start justify-between gap-4">
+            <div className="flex gap-3">
+              <span className="text-xl mt-0.5" role="img" aria-label="insight">💡</span>
+              <div>
+                <h4 className="font-semibold text-amber-900 text-sm">Weekly Spending Insight</h4>
+                <p className="text-amber-800 text-sm mt-1">{insight}</p>
+              </div>
+            </div>
+            <button
+              onClick={handleRefreshInsight}
+              disabled={insightLoading}
+              className={`text-amber-700 hover:text-amber-900 hover:bg-amber-100 p-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                insightLoading ? 'animate-spin' : ''
+              }`}
+              aria-label="Refresh insight"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
           </div>
         )}
 
@@ -996,8 +1106,56 @@ const VoiceFinanceDashboard = ({
                 </div>
               )}
             </div>
+
+            {/* Forecast KPI Card */}
+            {forecast && forecast.projected_total !== null && (
+              <div className="app-card border-2 border-blue-200 overflow-hidden">
+                <div className="px-6 py-4 flex items-center gap-3">
+                  <TrendingUp className="w-5 h-5 text-blue-600" />
+                  <span className="font-semibold text-blue-900">Month-end Forecast</span>
+                  <span className="text-xl font-bold text-blue-700">{formatINR(forecast.projected_total)}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Recurring Expenses Card */}
+        {recurring.length > 0 && (
+          <div className="app-card p-6 border-2 border-blue-200">
+            <details>
+              <summary className="text-xl font-bold text-blue-900 cursor-pointer list-none flex items-center justify-between">
+                <span>🔁 Recurring Expenses <span className="text-sm font-normal text-blue-600 ml-2">{recurring.length} detected</span></span>
+                <ChevronDown className="w-5 h-5 text-blue-600" />
+              </summary>
+              <div className="mt-4 space-y-4">
+                {recurring.map((item, index) => {
+                  const isOverdue = new Date(item.next_expected_date) < new Date();
+                  const isDueSoon = !isOverdue && (new Date(item.next_expected_date) - new Date()) / 86400000 <= 5;
+                  return (
+                    <div key={`recurring-${index}`} className="flex items-center justify-between border-b border-blue-100 pb-3 last:border-0 last:pb-0">
+                      <div>
+                        <p className="font-semibold text-blue-900 capitalize">{item.category}</p>
+                        <div className="flex items-center gap-2 mt-1 text-xs">
+                          <span className="text-blue-500">Next expected: {item.next_expected_date}</span>
+                          {isOverdue ? (
+                            <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-semibold text-[10px]">OVERDUE</span>
+                          ) : isDueSoon ? (
+                            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-semibold text-[10px]">DUE SOON</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-blue-800">{formatINR(item.representative_amount)}</p>
+                        <span className="text-xs text-blue-500">{item.avg_gap_days}d gap · {item.confidence} confidence</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          </div>
+        )}
 
         {/* Charts Section */}
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -1116,18 +1274,18 @@ const VoiceFinanceDashboard = ({
             </h3>
             {monthlyTrend.length > 0 ? (
               <>
-                <div className="h-64 flex items-end justify-around gap-1 px-4">
+                <div className="h-64 flex items-end justify-around gap-1 px-4 relative">
                   {monthlyTrend.map((month, idx) => {
                     const height = maxMonthly ? (month.amount / maxMonthly) * 100 : 0;
                     return (
-                      <div key={`monthly-${idx}`} className="flex flex-col items-center">
-                        <div className="flex flex-col items-center justify-end h-52">
+                      <div key={`monthly-${idx}`} className="flex flex-col items-center z-10">
+                        <div className="flex flex-col items-center justify-end h-52 relative">
                           <div className="relative group">
                             <div
                               className="w-10 rounded-t transition-all hover:opacity-80 bg-blue-600"
                               style={{ height: `${(height / 100) * 208}px` }}
                             ></div>
-                            <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-blue-900 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                            <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-blue-900 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20">
                               {formatINR(month.amount)}
                             </div>
                           </div>
@@ -1136,9 +1294,36 @@ const VoiceFinanceDashboard = ({
                       </div>
                     );
                   })}
+                  {forecast && forecast.projected_total !== null && (
+                    <div
+                      className="absolute left-4 right-4 border-t-2 border-dashed border-indigo-400 pointer-events-none"
+                      style={{ bottom: `calc(1.5rem + ${maxMonthly ? (forecast.projected_total / maxMonthly) * 208 : 0}px)` }}
+                    >
+                      <span className="absolute -top-5 right-0 text-xs font-semibold text-indigo-600 bg-white/80 px-1 rounded">
+                        Forecast: {formatINR(forecast.projected_total)}
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <div className="mt-4 pt-4 border-t border-blue-200 text-xs text-blue-700 text-center">
-                  Recent monthly spending totals
+                <div className="mt-4 pt-4 border-t border-blue-200">
+                  <div className="text-xs text-blue-700 text-center">
+                    Recent monthly spending totals
+                  </div>
+                  {forecast && forecast.projected_total !== null && (() => {
+                    const projectedHeight = maxMonthly
+                      ? Math.min((forecast.projected_total / maxMonthly) * 208, 208)
+                      : 0;
+                    return (
+                      <div className="mt-2 pt-2 border-t border-blue-200 flex items-center gap-2 text-xs text-blue-700 justify-center">
+                        <div className="flex items-center gap-1">
+                          <div className="w-6 border-t-2 border-dashed border-blue-400" />
+                          <span>Projected: {formatINR(forecast.projected_total)}</span>
+                        </div>
+                        <span className="text-blue-400">·</span>
+                        <span className="text-blue-500">{forecast.confidence}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               </>
             ) : (
@@ -1151,7 +1336,71 @@ const VoiceFinanceDashboard = ({
         <div className="app-card p-6 border-2 border-blue-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold text-blue-900">Recent Expenses</h3>
-            {loading && <span className="text-sm text-blue-600">Refreshing...</span>}
+            <div className="flex items-center gap-3">
+              {loading && <span className="text-sm text-blue-600">Refreshing...</span>}
+              <a
+                href="/api/export?format=csv"
+                className="text-sm text-blue-600 hover:underline font-medium"
+                download
+              >
+                Export CSV
+              </a>
+            </div>
+          </div>
+          {/* Filter row */}
+          <div className="flex flex-wrap gap-3 mb-4 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-blue-800 mb-1">From</label>
+              <input
+                type="date"
+                value={expenseFilter.from}
+                onChange={(e) => {
+                  const next = { ...expenseFilter, from: e.target.value };
+                  setExpenseFilter(next);
+                  getRecent(RECENT_LIMIT, next).then((res) => {
+                    const items = Array.isArray(res) ? res : [];
+                    setRecentExpenses(mapRecentExpenses(items));
+                  }).catch(() => {});
+                }}
+                className="px-3 py-2 border border-blue-200 rounded-lg text-sm text-blue-900 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-blue-800 mb-1">To</label>
+              <input
+                type="date"
+                value={expenseFilter.to}
+                onChange={(e) => {
+                  const next = { ...expenseFilter, to: e.target.value };
+                  setExpenseFilter(next);
+                  getRecent(RECENT_LIMIT, next).then((res) => {
+                    const items = Array.isArray(res) ? res : [];
+                    setRecentExpenses(mapRecentExpenses(items));
+                  }).catch(() => {});
+                }}
+                className="px-3 py-2 border border-blue-200 rounded-lg text-sm text-blue-900 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-blue-800 mb-1">Category</label>
+              <select
+                value={expenseFilter.category}
+                onChange={(e) => {
+                  const next = { ...expenseFilter, category: e.target.value };
+                  setExpenseFilter(next);
+                  getRecent(RECENT_LIMIT, next).then((res) => {
+                    const items = Array.isArray(res) ? res : [];
+                    setRecentExpenses(mapRecentExpenses(items));
+                  }).catch(() => {});
+                }}
+                className="px-3 py-2 border border-blue-200 rounded-lg text-sm text-blue-900 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">All</option>
+                {Object.keys(BUDGET_GUESSES).map((cat) => (
+                  <option key={cat} value={cat}>{titleCase(cat)}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
@@ -1162,26 +1411,101 @@ const VoiceFinanceDashboard = ({
                   <th className="text-left py-3 px-4 text-blue-900 font-semibold">Amount</th>
                   <th className="text-left py-3 px-4 text-blue-900 font-semibold">Category</th>
                   <th className="text-left py-3 px-4 text-blue-900 font-semibold">Description</th>
+                  <th className="text-left py-3 px-4 text-blue-900 font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {recentExpenses.length > 0 ? (
                   recentExpenses.map((expense) => (
-                    <tr key={expense.id} className="border-b border-blue-100 hover:bg-blue-50 transition-colors">
-                      <td className="py-3 px-4 text-blue-800">{expense.date || '—'}</td>
-                      <td className="py-3 px-4 text-blue-800">{expense.time || '—'}</td>
-                      <td className="py-3 px-4 text-blue-900 font-semibold">{formatINR(expense.amount)}</td>
-                      <td className="py-3 px-4">
-                        <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-                          {titleCase(expense.category)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-blue-700">{expense.description || '—'}</td>
-                    </tr>
+                    editingId === expense.id ? (
+                      <tr key={expense.id} className="border-b border-blue-100 bg-blue-50">
+                        <td className="py-3 px-4 text-blue-800">{expense.date || '—'}</td>
+                        <td className="py-3 px-4 text-blue-800">{expense.time || '—'}</td>
+                        <td className="py-2 px-4">
+                          <input
+                            type="number"
+                            value={editForm.amount}
+                            onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                            className="w-24 px-2 py-1 border border-blue-300 rounded text-sm text-blue-900"
+                          />
+                        </td>
+                        <td className="py-2 px-4">
+                          <input
+                            type="text"
+                            value={editForm.category}
+                            onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                            className="w-28 px-2 py-1 border border-blue-300 rounded text-sm text-blue-900"
+                          />
+                        </td>
+                        <td className="py-2 px-4">
+                          <input
+                            type="text"
+                            value={editForm.description}
+                            onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                            className="w-full px-2 py-1 border border-blue-300 rounded text-sm text-blue-900"
+                          />
+                        </td>
+                        <td className="py-2 px-4">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await apiUpdateExpense(expense.id, editForm);
+                                  setEditingId(null);
+                                  setToast({ type: 'success', message: 'Expense updated.' });
+                                  await loadData();
+                                } catch (err) {
+                                  setToast({ type: 'error', message: err.message || 'Update failed.' });
+                                }
+                              }}
+                              className="px-3 py-1 bg-green-600 text-white text-xs rounded font-semibold hover:bg-green-700"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingId(null)}
+                              className="px-3 py-1 bg-gray-300 text-gray-800 text-xs rounded font-semibold hover:bg-gray-400"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={expense.id} className="border-b border-blue-100 hover:bg-blue-50 transition-colors">
+                        <td className="py-3 px-4 text-blue-800">{expense.date || '—'}</td>
+                        <td className="py-3 px-4 text-blue-800">{expense.time || '—'}</td>
+                        <td className="py-3 px-4 text-blue-900 font-semibold">{formatINR(expense.amount)}</td>
+                        <td className="py-3 px-4">
+                          <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+                            {titleCase(expense.category)}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-blue-700">{expense.description || '—'}</td>
+                        <td className="py-3 px-4">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(expense.id);
+                              setEditForm({
+                                amount: String(expense.amount),
+                                category: expense.category,
+                                description: expense.description || '',
+                              });
+                            }}
+                            className="px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded font-semibold hover:bg-blue-200"
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    )
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="5" className="py-4 px-4 text-center text-blue-700">
+                    <td colSpan="6" className="py-4 px-4 text-center text-blue-700">
                       No expenses logged yet.
                     </td>
                   </tr>

@@ -35,6 +35,9 @@ jest.mock('./api', () => ({
   getDailyTotals: jest.fn(() => Promise.resolve([])),
   getMonthlyTotals: jest.fn(() => Promise.resolve([])),
   getBudgets: jest.fn(() => Promise.resolve({})),
+  addExpense: jest.fn(() => Promise.resolve({ message: 'Added.' })),
+  updateExpense: jest.fn(() => Promise.resolve({ message: 'Updated.' })),
+  sendVoiceCommand: jest.fn(() => Promise.resolve({ action: 'unknown', reply: 'test' })),
   onAuthFailure: jest.fn(() => () => {}),
 }));
 

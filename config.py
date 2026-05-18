@@ -14,6 +14,8 @@ CHART_DIR = os.path.join("static", "charts")
 BUDGETS_FILE = "budgets.json"
 REACT_BUILD_DIR = os.path.join("frontend", "build")
 REACT_INDEX_FILE = os.path.join(REACT_BUILD_DIR, "index.html")
+GROQ_PARSE_MODEL = os.environ.get("VOXLY_GROQ_PARSE_MODEL", "llama-3.1-8b-instant")
+GROQ_INSIGHT_MODEL = os.environ.get("VOXLY_GROQ_INSIGHT_MODEL", "llama-3.3-70b-versatile")
 
 # Default percentage of a budget that should trigger a warning
 DEFAULT_BUDGET_WARN_THRESHOLD = 0.8
@@ -36,6 +38,11 @@ if JWT_SECRET == _JWT_SECRET_DEFAULT and _env not in {"development", "testing"}:
     )
 
 COMMAND_LOGGING_ENABLED = os.environ.get("VOXLY_COMMAND_LOGGING_ENABLED", "false").lower() in {"1", "true", "yes"}
+
+# Groq NLP backend (free tier: 14,400 req/day)
+GROQ_API_KEY = os.environ.get("VOXLY_GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("VOXLY_GROQ_MODEL", "llama3-8b-8192")
+GROQ_ENABLED = bool(GROQ_API_KEY)
 
 def ensure_dirs():
     """Ensure required directories exist."""

@@ -57,6 +57,22 @@ cp .env.example .env
 python app.py
 ```
 
+### Environment Variables
+Configure these in your `.env` file for production security:
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `VOXLY_JWT_SECRET` | Secret key for JWT signing (**Required in Production**) | `voxly-insecure-dev-secret` |
+| `VOXLY_SESSION_SECRET` | Secret key for Flask sessions | (Randomly generated) |
+| `VOXLY_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | `http://localhost:3000` |
+| `FLASK_ENV` | Set to `production` to enable secure cookies and stricter guards | `development` |
+
+**Optional environment variables:**
+- `VOXLY_GROQ_API_KEY` — Groq API key for AI-powered voice parsing.
+  Free tier: 14,400 requests/day. Get one at https://console.groq.com
+  If not set, the app falls back to the built-in regex parser automatically.
+- `VOXLY_GROQ_MODEL` — Groq model to use (default: llama3-8b-8192).
+
 ### 2. Frontend Setup
 ```powershell
 cd frontend
