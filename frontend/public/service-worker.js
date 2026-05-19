@@ -154,17 +154,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API requests: network-first, fall back to cache
+  // API requests: network-first with no caching
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request)
-        .then((resp) => {
-          const clone = resp.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(request, clone));
-          return resp;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith(fetch(request));
     return;
   }
 

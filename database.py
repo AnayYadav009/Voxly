@@ -85,26 +85,17 @@ CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id, expires_at);
 def _current_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def _ensure_expense_user_column(conn: sqlite3.Connection) -> None:
-    try:
-        cur = conn.execute("PRAGMA table_info(expenses)")
-        columns = {row[1] for row in cur.fetchall()}
-        if "user_id" not in columns:
-            conn.execute("ALTER TABLE expenses ADD COLUMN user_id TEXT")
+def _ensure_column(conn, table, column, definition):
+    cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+    if not cur.fetchone():
+        return
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    if column not in {row[1] for row in cur.fetchall()}:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             conn.commit()
-    except sqlite3.Error as exc:
-        log_error("Failed to ensure user_id column: %s", exc)
-
-
-def _ensure_user_logging_column(conn: sqlite3.Connection) -> None:
-    try:
-        cur = conn.execute("PRAGMA table_info(users)")
-        columns = {row[1] for row in cur.fetchall()}
-        if "log_opt_in" not in columns:
-            conn.execute("ALTER TABLE users ADD COLUMN log_opt_in INTEGER NOT NULL DEFAULT 0")
-            conn.commit()
-    except sqlite3.Error as exc:
-        log_error("Failed to ensure log_opt_in column: %s", exc)
+        except sqlite3.Error as exc:
+            log_error("Failed to ensure column %s on %s: %s", column, table, exc)
 
 def create_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
     """Create connection."""
@@ -132,8 +123,8 @@ def create_table() -> None:
         with get_db() as conn:
             # Ensure legacy `user_id` column exists on `expenses` before applying schema
             # (older DBs may lack the column, and index creation below would fail).
-            _ensure_expense_user_column(conn)
-            _ensure_user_logging_column(conn)
+            _ensure_column(conn, "expenses", "user_id", "TEXT")
+            _ensure_column(conn, "users", "log_opt_in", "INTEGER NOT NULL DEFAULT 0")
             conn.executescript(SCHEMA)
             conn.commit()
         log_info("Database schema ensured.")

@@ -42,7 +42,7 @@ class BudgetStatus:
     level: str
     message: str
 
-def get_budget_limits(user_id: str) -> Dict[str, BudgetLimit]:
+def get_budget_limits(user_id: str, path: Optional[str] = None) -> Dict[str, BudgetLimit]:
     """Retrieve all budget limits for a specific user.
     
     Args:
@@ -146,6 +146,7 @@ def evaluate_monthly_budgets(
     user_id: str,
     year: Optional[int] = None,
     month: Optional[int] = None,
+    path: Optional[str] = None,
 ) -> List[BudgetStatus]:
     """Evaluate spending against budgets for a specific month.
     
@@ -163,7 +164,7 @@ def evaluate_monthly_budgets(
     now = datetime.now()
     year = year or now.year
     month = month or now.month
-    limits = get_budget_limits(user_id)
+    limits = get_budget_limits(user_id, path=path)
     if not limits:
         return []
     totals = get_monthly_totals_by_category(year=year, month=month, user_id=user_id)
@@ -179,6 +180,7 @@ def get_alert_for_category(
     user_id: str,
     year: Optional[int] = None,
     month: Optional[int] = None,
+    path: Optional[str] = None,
 ) -> Optional[BudgetStatus]:
     """Check if a specific category has breached its warning or critical threshold.
     
@@ -195,11 +197,11 @@ def get_alert_for_category(
     if not user_id:
         return None
     category_key = category.lower()
-    limits = get_budget_limits(user_id)
+    limits = get_budget_limits(user_id, path=path)
     limit = limits.get(category_key)
     if not limit:
         return None
-    statuses = evaluate_monthly_budgets(user_id=user_id, year=year, month=month)
+    statuses = evaluate_monthly_budgets(user_id=user_id, year=year, month=month, path=path)
     for status in statuses:
         if status.category == category_key and status.level in {"warning", "critical"}:
             return status

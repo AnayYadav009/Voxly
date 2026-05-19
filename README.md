@@ -1,6 +1,6 @@
 # 🎙️ Voxly: Voice-Powered Personal Finance Tracker
 
-Voxly is a modern, voice-enabled personal finance dashboard that combines a **Flask** backend with a **React** frontend. It leverages **spaCy-powered NLP** to process natural language commands, allowing users to manage their expenses, monitor budgets, and view financial insights through intuitive voice or text interactions.
+Voxly is a modern, voice-enabled personal finance dashboard that combines a **Flask** backend with a **React** frontend. It leverages **Groq API** to process natural language commands, allowing users to manage their expenses, monitor budgets, and view financial insights through intuitive voice or text interactions.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
@@ -10,7 +10,7 @@ Voxly is a modern, voice-enabled personal finance dashboard that combines a **Fl
 
 ## ✨ Key Features
 
-- **🗣️ Natural Language Processing:** Record expenses like "Add 500 for groceries" or "I spent 1200 on dinner" using spaCy-driven intent recognition.
+- **🗣️ Natural Language Processing:** Record expenses like "Add 500 for groceries" or "I spent 1200 on dinner" using LLM-driven intent recognition via Groq.
 - **📊 Real-time Dashboard:** Visualize spending habits with dynamic charts (Category Breakdown, Daily Trends, Monthly Totals).
 - **🛡️ Smart Budgeting:** Set category-specific limits and receive instant voice/visual alerts when you're nearing your threshold.
 - **🔐 Secure & Private:** Local-first SQLite database with JWT-based authentication and secure password hashing.
@@ -21,7 +21,7 @@ Voxly is a modern, voice-enabled personal finance dashboard that combines a **Fl
 
 ## 🛠️ Tech Stack
 
-- **Backend:** Flask, spaCy (NLP), SQLite, Flask-Limiter, PyJWT
+- **Backend:** Flask, SQLite, Flask-Limiter, PyJWT, Groq
 - **Frontend:** React 19, Lucide React, Tailwind CSS
 - **Voice I/O:** Web Speech API (Browser), Pyttsx3/SpeechRecognition (CLI/Fallback)
 - **Testing:** Pytest (Backend), Jest/React Testing Library (Frontend)
@@ -47,7 +47,6 @@ python -m venv venv
 
 # Install dependencies
 pip install -r requirements.txt
-python -m spacy download en_core_web_sm
 
 # Configure environment
 cp .env.example .env
@@ -68,10 +67,9 @@ Configure these in your `.env` file for production security:
 | `FLASK_ENV` | Set to `production` to enable secure cookies and stricter guards | `development` |
 
 **Optional environment variables:**
-- `VOXLY_GROQ_API_KEY` — Groq API key for AI-powered voice parsing.
+- `GROQ_API_KEY` — Groq API key for AI-powered voice parsing and insights.
   Free tier: 14,400 requests/day. Get one at https://console.groq.com
-  If not set, the app falls back to the built-in regex parser automatically.
-- `VOXLY_GROQ_MODEL` — Groq model to use (default: llama3-8b-8192).
+- `GROQ_MODEL` — Groq model to use (default: llama-3.3-70b-versatile).
 
 ### 2. Frontend Setup
 ```powershell
@@ -114,8 +112,7 @@ npm test -- --watchAll=false
 ## 📂 Project Structure
 
 - `app.py`: Main Flask entry point and REST API.
-- `voice_module.py`: Voice input processing and command parsing.
-- `nlp_engine.py`: Intent and entity extraction using spaCy.
+- `voice_module.py`: Voice input processing and command parsing via Groq.
 - `budget_module.py`: Budget evaluation and alert logic.
 - `database.py`: SQLite interaction layer.
 - `frontend/`: React source code and dashboard components.

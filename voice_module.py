@@ -1,236 +1,159 @@
-"""Voice input and NLP command processing module."""
+from __future__ import annotations
 
+import json
 import os
 import random
-import re
 import tempfile
 import time
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional
 
-try:
-    import dateparser
-    from dateparser.search import search_dates  # type: ignore
-    _HAS_DATEPARSER = True
-except Exception:
-    dateparser = None  # type: ignore
-    def search_dates(*args, **kwargs):  # fallback stub
-        """Search dates."""
-        return None
-    _HAS_DATEPARSER = False
-from word2number import w2n
-import nlp_engine
+from groq import Groq
 
-import threading
+from config import GROQ_API_KEY, GROQ_MODEL
 
+_groq_client: Optional[Groq] = None
 _engine = None
-_tts_lock = threading.Lock()
 _recognizer = None
+last_transcript: Optional[str] = None
 
-def _get_engine():
-    global _engine
-    with _tts_lock:
-        if _engine is not None:
-            return _engine
-        try:
-            import pyttsx3
 
-            _engine = pyttsx3.init()
-            voices = _engine.getProperty("voices")
-            for voice in voices:
-                name = getattr(voice, "name", "").lower()
-                if "zira" in name or "female" in name:
-                    _engine.setProperty("voice", voice.id)
-                    break
-            _engine.setProperty("rate", 170)
-            _engine.setProperty("volume", 1.0)
-        except Exception:
-            _engine = None
-    return _engine
+def _get_client() -> Groq:
+    global _groq_client
+    if _groq_client is None:
+        if not GROQ_API_KEY:
+            raise RuntimeError(
+                "GROQ_API_KEY is not set. Add it to your .env file."
+            )
+        _groq_client = Groq(api_key=GROQ_API_KEY)
+    return _groq_client
 
-def _get_recognizer():
-    global _recognizer
-    if _recognizer is not None:
-        return _recognizer
+
+_SYSTEM_PROMPT = """
+You are a voice command parser for a personal finance tracker app called Voxly.
+The user speaks a command and you must return ONLY a valid JSON object — no prose,
+no markdown, no explanation, just the raw JSON.
+
+Supported actions and their required fields:
+
+1. add an expense:
+   {"action": "add", "amount": <number>, "category": "<string>", "date": "<YYYY-MM-DD or null>", "description": "<string or null>"}
+
+2. delete the last expense:
+   {"action": "delete"}
+
+3. show today's balance / total:
+   {"action": "balance"}
+
+4. show recent expenses:
+   {"action": "recent"}
+
+5. weekly summary:
+   {"action": "weekly"}
+
+6. monthly summary:
+   {"action": "monthly"}
+
+7. set a budget limit:
+   {"action": "set_budget", "category": "<string>", "amount": <number>, "warn_ratio": <0.0-1.0 or null>}
+
+8. show budget status (all or one category):
+   {"action": "show_budgets", "category": "<string or null>"}
+
+9. remove a budget:
+   {"action": "remove_budget", "category": "<string>"}
+
+10. chart / visual summary:
+    {"action": "chart_summary"}
+
+11. help:
+    {"action": "help"}
+
+12. exit / stop / quit:
+    {"action": "exit"}
+
+13. repeat last command:
+    {"action": "repeat"}
+
+14. unrecognisable input:
+    {"action": "unknown"}
+
+Rules:
+- amount must always be a plain number (e.g. 500, not "500 rupees").
+- category must be lowercase, one word from: food, transport, entertainment,
+  shopping, utilities, health, education, rent, savings, personal, gifts,
+  charity, insurance, fees. If none match, use "uncategorized".
+- date must be ISO format YYYY-MM-DD if mentioned, otherwise null.
+- warn_ratio must be a decimal between 0.0 and 1.0 (e.g. "80 percent" → 0.8).
+  If not mentioned, use null.
+- description is any extra detail the user mentioned beyond amount and category.
+  If none, use null.
+- Never return anything except the JSON object.
+""".strip()
+
+
+def parse_expense(text: str) -> Dict[str, Any]:
+    """Parse a voice command string into a structured action dict using Groq."""
+    if not text or not text.strip():
+        return {"action": "none"}
+
     try:
-        import speech_recognition as sr
-        _recognizer = sr.Recognizer()
-    except Exception:
-        _recognizer = None
-    return _recognizer
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": text.strip()},
+            ],
+            temperature=0.0,
+            max_tokens=256,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content or "{}"
+        parsed = json.loads(raw)
+        if "action" not in parsed:
+            return {"action": "unknown", "raw": text}
+        return parsed
+    except json.JSONDecodeError:
+        return {"action": "unknown", "raw": text}
+    except Exception as exc:
+        from logger import log_error
+        log_error("Groq parse_expense failed: %s", exc)
+        return {"action": "unknown", "raw": text}
 
-def _preprocess(text: str) -> str:
-    """Normalize text and fix tokenization for currency."""
-    text = text.strip().lower()
-    # Insert space between currency symbol and digits: ₹500 -> ₹ 500
-    text = re.sub(r'([₹$€£])(\d)', r'\1 \2', text)
-    # Remove commas inside numbers
-    text = re.sub(r'(\d),(\d)', r'\1\2', text)
-    return text
 
-def _extract_amount(doc) -> Optional[float]:
-    """Extract numeric amount from doc via NER and fallbacks."""
-    # 1. NER check
-    for ent in doc.ents:
-        if ent.label_ in {"MONEY", "CARDINAL"}:
-            try:
-                # Strip currency symbols and whitespace
-                cleaned = re.sub(r'[₹$€£\s]', '', ent.text)
-                val = float(cleaned)
-                if val > 0:
-                    return val
-            except ValueError:
-                continue
-    
-    # 2. Token-level fallback
-    for token in doc:
-        if token.like_num or (token.text.replace('.', '', 1).isdigit()):
-            try:
-                val = float(token.text)
-                if val > 0:
-                    return val
-            except ValueError:
-                continue
-                
-    # 3. word2number fallback
-    num_words = []
-    for token in doc:
-        # Simple heuristic for number words
-        if token.lower_ in {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", 
-                           "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
-                           "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "lakh", "million"}:
-            num_words.append(token.lower_)
-        elif num_words:
-            # Try to convert collected sequence
-            try:
-                val = float(w2n.word_to_num(" ".join(num_words)))
-                if val > 0:
-                    return val
-            except ValueError:
-                pass
-            num_words = []
-    
-    if num_words:
-        try:
-            val = float(w2n.word_to_num(" ".join(num_words)))
-            if val > 0:
-                return val
-        except ValueError:
-            pass
-            
-    return None
+# ── Speech synthesis ──────────────────────────────────────────────────────────
 
-def _extract_category(doc) -> str:
-    """Match canonical category from doc."""
-    # Words that are both category synonyms and action verbs — skip them
-    _ACTION_WORDS = {"show", "buy", "purchase", "bought", "record", "log", "book", "pay", "paid", "spend", "spent", "note"}
-    nlp = nlp_engine.get_nlp()
-    matcher = nlp_engine.get_category_matcher(nlp)
-    matches = matcher(doc)
-    for match_id, start, end in matches:
-        matched_text = doc[start:end].text.lower()
-        if matched_text in _ACTION_WORDS:
-            continue
-        return nlp.vocab.strings[match_id]
-    return "uncategorized"
-
-def _extract_description(doc, category: str, amount_tokens: Set[int]) -> Optional[str]:
-    """Build description by filtering tokens."""
-    cat_synonyms = nlp_engine.CATEGORY_SYNONYMS.get(category, set()) | {category}
-    
-    desc_parts = []
-    for token in doc:
-        if token.i in amount_tokens:
-            continue
-        if token.is_stop or token.is_punct:
-            continue
-        if token.lower_ in cat_synonyms:
-            continue
-        # Also check lemmas for category synonyms
-        if token.lemma_ in cat_synonyms:
-            continue
-        desc_parts.append(token.text)
-        
-    res = " ".join(desc_parts).strip()
-    return res if res else None
-
-def _extract_warn_ratio(doc) -> Optional[float]:
-    """Extract budget warning ratio."""
-    for ent in doc.ents:
-        if ent.label_ == "PERCENT":
-            # Check window before
-            start_idx = max(0, ent.start - 5)
-            window = doc[start_idx : ent.start]
-            if any(t.lemma_ in {"warn", "alert", "notify", "remind"} for t in window):
-                try:
-                    val_str = ent.text.replace('%', '').replace('percent', '').strip()
-                    val = float(val_str)
-                    if val > 1:
-                        val = val / 100.0
-                    return max(0.0, min(val, 1.0))
-                except ValueError:
-                    continue
-    return None
-
-def _extract_date(text: str) -> Optional[str]:
-    """Keep using dateparser for dates."""
-    if not _HAS_DATEPARSER:
-        return None
-    
-    settings = {
-        "PREFER_DATES_FROM": "past",
-        "RETURN_AS_TIMEZONE_AWARE": False,
-        "DATE_ORDER": "DMY",
-    }
-    
-    # Try search_dates first
-    results = search_dates(text, settings=settings)
-    if results:
-        # Take the first parsed date
-        return results[0][1].date().isoformat()
-    
-    # Try direct parse
-    parsed = dateparser.parse(text, settings=settings)
-    if parsed:
-        return parsed.date().isoformat()
-    
-    return None
-
-def _detect_action(doc) -> Optional[str]:
-    """Detect command action using Matcher."""
-    nlp = nlp_engine.get_nlp()
-    matcher = nlp_engine.get_action_matcher(nlp)
-    matches = matcher(doc)
-    if matches:
-        # Respect priority order from ACTION_PRIORITY
-        found_actions = {nlp.vocab.strings[m_id] for m_id, start, end in matches}
-        for candidate in nlp_engine.ACTION_PRIORITY:
-            if candidate in found_actions:
-                return candidate
-    return None
-
-_TONE_RESPONSES = {
-    "success": [
-        "Done.","Got it.","All set.","Expense recorded.",
-    ],
-    "info": [
-        "Okay.","Here you go.","Let me tell you.",
-    ],
-    "error": [
-        "Sorry, that failed.","Hmm, something went wrong.","I could not do that.",
-    ],
-    "summary": [
-        "Here is the summary.","Let me summarize.",
-    ],
+_TONE_RESPONSES: Dict[str, list] = {
+    "success": ["Done.", "Got it.", "All set.", "Expense recorded."],
+    "info":    ["Okay.", "Here you go.", "Let me tell you."],
+    "error":   ["Sorry, that failed.", "Hmm, something went wrong.", "I could not do that."],
+    "summary": ["Here is the summary.", "Let me summarize."],
     "neutral": [""],
 }
 
-last_transcript: Optional[str] = None
+
+def _get_engine():
+    global _engine
+    if _engine is not None:
+        return _engine
+    try:
+        import pyttsx3
+        _engine = pyttsx3.init()
+        voices = _engine.getProperty("voices")
+        for voice in voices:
+            if "zira" in getattr(voice, "name", "").lower() or "female" in getattr(voice, "name", "").lower():
+                _engine.setProperty("voice", voice.id)
+                break
+        _engine.setProperty("rate", 170)
+        _engine.setProperty("volume", 1.0)
+    except Exception:
+        _engine = None
+    return _engine
+
 
 def speak(text: str, tone: str = "neutral") -> None:
-    """Speak."""
     if not text:
         return
-    tone = tone or "neutral"
     prefix = random.choice(_TONE_RESPONSES.get(tone, [""]))
     utterance = f"{prefix} {text}" if prefix else text
     engine = _get_engine()
@@ -245,31 +168,46 @@ def speak(text: str, tone: str = "neutral") -> None:
     if len(utterance.split()) > 12:
         time.sleep(0.4)
 
+
 def respond(action: str, message: str) -> None:
-    """Respond."""
     tone_map = {
-        "add": "success",
+        "add":     "success",
         "balance": "info",
-        "recent": "info",
-        "weekly": "summary",
+        "recent":  "info",
+        "weekly":  "summary",
         "monthly": "summary",
-        "delete": "success",
-        "error": "error",
-        "help": "neutral",
-        "repeat": "info",
+        "delete":  "success",
+        "error":   "error",
+        "help":    "neutral",
+        "repeat":  "info",
     }
     speak(message, tone=tone_map.get(action, "neutral"))
 
-def _record_audio(duration: float, fs: int) -> Any:
-    import sounddevice as sd
-    import numpy as np
 
+# ── Microphone input ──────────────────────────────────────────────────────────
+
+def _get_recognizer():
+    global _recognizer
+    if _recognizer is not None:
+        return _recognizer
+    try:
+        import speech_recognition as sr
+        _recognizer = sr.Recognizer()
+    except Exception:
+        _recognizer = None
+    return _recognizer
+
+
+def _record_audio(duration: float, fs: int):
+    import numpy as np
+    import sounddevice as sd
     recording = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype="int16")
     sd.wait()
     recording = np.asarray(recording)
     if recording.ndim > 1:
         recording = recording.squeeze(axis=1)
-    return recording.astype(np.int16)
+    return recording.astype("int16")
+
 
 def get_voice_input(
     duration: float = 5.0,
@@ -277,7 +215,6 @@ def get_voice_input(
     language: str = "en-IN",
     retries: int = 1,
 ) -> str:
-    """Get voice input."""
     global last_transcript
     attempt = 0
     while attempt <= retries:
@@ -297,28 +234,22 @@ def get_voice_input(
             import speech_recognition as sr
             with sr.AudioFile(tmp_filename) as source:
                 audio = recognizer.record(source)
-
-            transcript = recognizer.recognize_google(audio, language=language)
-            transcript = transcript.strip()
+            transcript = recognizer.recognize_google(audio, language=language).strip()
             print("Heard:", transcript)
             last_transcript = transcript
             return transcript.lower()
         except Exception as exc:
-            name = exc.__class__.__name__ if exc else ""
+            name = exc.__class__.__name__
             if name == "UnknownValueError":
                 speak("Sorry, I did not catch that.", tone="error")
                 continue
             if name == "RequestError":
                 speak("Speech service unavailable.", tone="error")
-                print("Speech service error:", exc)
                 break
             if name == "PortAudioError":
                 speak("Microphone error. Please check the device.", tone="error")
-                print("Microphone error:", exc)
                 break
-            else:
-                speak("I hit an unexpected problem.", tone="error")
-                print("Voice input error:", exc)
+            speak("I hit an unexpected problem.", tone="error")
         finally:
             if tmp_filename and os.path.exists(tmp_filename):
                 try:
@@ -327,73 +258,24 @@ def get_voice_input(
                     pass
     return ""
 
-def parse_expense(text: str) -> Dict[str, Any]:
-    """Parse expense."""
-    if not text or not text.strip():
-        return {"action": "none"}
-    
-    preprocessed = _preprocess(text)
-    nlp = nlp_engine.get_nlp()
-    doc = nlp(preprocessed)
-    
-    action = _detect_action(doc)
-    
-    if action is None:
-        # check if there's an amount or category as implicit "add"
-        amount = _extract_amount(doc)
-        category = _extract_category(doc)
-        if amount is not None or category != "uncategorized":
-            action = "add"
-        else:
-            return {"action": "unknown", "raw": preprocessed}
-    
-    if action == "add":
-        amount = _extract_amount(doc)
-        category = _extract_category(doc)
-        # find amount span for description extraction
-        amount_tokens = {token.i for token in doc if token.like_num or token.is_currency}
-        description = _extract_description(doc, category, amount_tokens)
-        date = _extract_date(text)  # use original text for date parsing
-        return {"action": "add", "amount": amount, "category": category, "date": date, "description": description}
-    
-    if action == "set_budget":
-        amount = _extract_amount(doc)
-        category = _extract_category(doc)
-        warn_ratio = _extract_warn_ratio(doc)
-        return {"action": "set_budget", "amount": amount, "category": None if category == "uncategorized" else category, "warn_ratio": warn_ratio}
-    
-    if action == "show_budgets":
-        category = _extract_category(doc)
-        return {"action": "show_budgets", "category": None if category == "uncategorized" else category}
-    
-    if action == "remove_budget":
-        category = _extract_category(doc)
-        return {"action": "remove_budget", "category": None if category == "uncategorized" else category}
-    
-    if action == "chart_summary":
-        return {"action": "chart_summary"}
-    
-    return {"action": action}
+
+def repeat_last_transcript() -> Optional[str]:
+    return last_transcript
+
 
 def confirm_amount_flow(
     prompt_text: str = "Please say the amount now.",
     retries: int = 2,
 ) -> Optional[float]:
-    """Confirm amount flow."""
     speak(prompt_text)
     for _ in range(retries):
         follow_up = get_voice_input(duration=4)
         info = parse_expense(follow_up)
         amount = info.get("amount")
         if info.get("action") == "add" and amount is not None:
-            return amount
-        potential = info.get("raw") if info.get("raw") else follow_up
+            return float(amount)
         try:
-            return float(potential)
+            return float(follow_up)
         except (TypeError, ValueError):
             speak("I still did not hear a number. Try again.", tone="error")
     return None
-
-def repeat_last_transcript() -> Optional[str]:
-    """Repeat last transcript."""
-    return last_transcript

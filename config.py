@@ -30,21 +30,16 @@ JWT_ALGORITHM = os.environ.get("VOXLY_JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRES_MINUTES = int(os.environ.get("VOXLY_JWT_EXPIRES_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRES_DAYS = int(os.environ.get("VOXLY_JWT_REFRESH_DAYS", "7"))
 
-_env = os.environ.get("FLASK_ENV", "production")
-if JWT_SECRET == _JWT_SECRET_DEFAULT and _env not in {"development", "testing"}:
-    raise RuntimeError(
-        "VOXLY_JWT_SECRET is not set. Set a strong random secret before "
-        "starting the server in production."
-    )
+if JWT_SECRET == "dev-secret-change-me" and os.environ.get("FLASK_ENV") == "production":
+    raise RuntimeError("VOXLY_JWT_SECRET must be set to a strong secret in production.")
 
 COMMAND_LOGGING_ENABLED = os.environ.get("VOXLY_COMMAND_LOGGING_ENABLED", "false").lower() in {"1", "true", "yes"}
 
-# Groq NLP backend (free tier: 14,400 req/day)
-GROQ_API_KEY = os.environ.get("VOXLY_GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("VOXLY_GROQ_MODEL", "llama3-8b-8192")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_ENABLED = bool(GROQ_API_KEY)
 
-def ensure_dirs():
+def init_dirs():
     """Ensure required directories exist."""
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(CHART_DIR, exist_ok=True)

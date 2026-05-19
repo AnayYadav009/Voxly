@@ -20,6 +20,7 @@ import sqlite3  # noqa: E402
 import database  # noqa: E402
 import summary_module  # noqa: E402
 import visual_module  # noqa: E402
+import app as app_module  # noqa: E402
 from app import _safe_limit, app  # noqa: E402
 from auth import create_access_token  # noqa: E402
 from budget_module import get_budget_limits, remove_budget_limit, set_budget_limit  # noqa: E402
@@ -71,6 +72,30 @@ def _auth_headers(user_id: str) -> dict:
     token = create_access_token(user_id)
     return {"Authorization": f"Bearer {token}"}
 
+@pytest.fixture
+def auth_headers(temp_db):
+    from database import create_user
+    from auth import hash_password, create_access_token
+    try:
+        user = create_user(
+            email="test@example.com",
+            password_hash=hash_password("Test1234"),
+            display_name="Tester",
+        )
+    except sqlite3.IntegrityError:
+        user = temp_db["user"]
+    token = create_access_token(user["id"])
+    return {"Authorization": f"Bearer {token}"}
+
+
+
+@pytest.fixture
+def mock_parse(monkeypatch):
+    """Returns a factory: call mock_parse(returned_dict) to set the response."""
+    def factory(return_value: dict):
+        monkeypatch.setattr(app_module, "parse_expense", lambda text: return_value)
+    return factory
+
 
 # Fixture temp_budget_file removed as budgets are now in DB
 
@@ -87,34 +112,33 @@ def test_safe_limit_clamps_values():
     assert _safe_limit(None) == 5
 
 
-def test_api_recent_bad_limit_uses_default(temp_db):
+def test_api_recent_bad_limit_uses_default(temp_db, auth_headers):
     """Test function."""
-    user_id = _test_user_id(temp_db)
-    headers = _auth_headers(user_id)
+    user_id = temp_db["user"]["id"]
     today = datetime.now().strftime(DATE_FORMAT)
     for idx in range(7):
-        _add_expense(10 + idx, f"cat{idx}", today)
+        _add_expense(10 + idx, f"cat{idx}", today, user_id=user_id)
 
     client = app.test_client()
-    response = client.get("/api/recent?limit=abc", headers=headers)
+    response = client.get("/api/recent?limit=abc", headers=auth_headers)
     assert response.status_code == 200
     data = response.get_json()
     assert isinstance(data, list)
 
 
-def test_voice_recent_invalid_limit(temp_db):
+def test_voice_recent_invalid_limit(temp_db, auth_headers, mock_parse):
     """Test function."""
-    user_id = _test_user_id(temp_db)
-    headers = _auth_headers(user_id)
+    mock_parse({"action": "recent"})
+    user_id = temp_db["user"]["id"]
     today = datetime.now().strftime(DATE_FORMAT)
     for idx in range(7):
-        _add_expense(20 + idx, f"voice{idx}", today)
+        _add_expense(20 + idx, f"voice{idx}", today, user_id=user_id)
 
     client = app.test_client()
     response = client.post(
         "/api/voice_command",
         json={"command": "show recent expenses", "limit": "xyz"},
-        headers=headers,
+        headers=auth_headers,
     )
     assert response.status_code == 200
     payload = response.get_json()
@@ -199,8 +223,9 @@ def test_monthly_summary_text_excludes_previous_month(temp_db):
     assert "shopping" not in lower_summary
 
 
-def test_voice_set_budget_updates_limits(temp_db):
+def test_voice_set_budget_updates_limits(temp_db, mock_parse):
     """Test function."""
+    mock_parse({"action": "set_budget", "category": "utilities", "amount": 4500, "warn_ratio": None})
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     client = app.test_client()
@@ -220,8 +245,9 @@ def test_voice_set_budget_updates_limits(temp_db):
     assert config_data["utilities"].limit == 4500.0
 
 
-def test_voice_set_budget_with_warn_ratio(temp_db):
+def test_voice_set_budget_with_warn_ratio(temp_db, mock_parse):
     """Test function."""
+    mock_parse({"action": "set_budget", "category": "food", "amount": 5000, "warn_ratio": 0.7})
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     client = app.test_client()
@@ -238,8 +264,9 @@ def test_voice_set_budget_with_warn_ratio(temp_db):
     assert config_data["food"].warn_ratio == pytest.approx(0.7)
 
 
-def test_voice_remove_budget_via_command(temp_db):
+def test_voice_remove_budget_via_command(temp_db, mock_parse):
     """Test function."""
+    mock_parse({"action": "remove_budget", "category": "entertainment"})
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     set_budget_limit(user_id, "entertainment", 3000)
@@ -257,8 +284,9 @@ def test_voice_remove_budget_via_command(temp_db):
     assert "entertainment" not in updated
 
 
-def test_voice_show_budget_with_remaining(temp_db):
+def test_voice_show_budget_with_remaining(temp_db, mock_parse):
     """Test function."""
+    mock_parse({"action": "show_budgets", "category": "food"})
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     today = datetime.now().strftime(DATE_FORMAT)
@@ -280,8 +308,9 @@ def test_voice_show_budget_with_remaining(temp_db):
     assert "budget" in payload["reply"].lower()
 
 
-def test_voice_chart_summary_returns_series(temp_db):
+def test_voice_chart_summary_returns_series(temp_db, mock_parse):
     """Test function."""
+    mock_parse({"action": "chart_summary"})
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     today = datetime.now().strftime(DATE_FORMAT)
@@ -318,3 +347,55 @@ def test_recurring_detection_finds_monthly_pattern(temp_db):
     match = next(r for r in results if r["category"] == "utilities")
     assert match["occurrences"] == 3
     assert 25 <= match["avg_gap_days"] <= 38
+
+class TestAuthEndpoints:
+    def test_register_and_login_roundtrip(self, temp_db):
+        client = app.test_client()
+        resp = client.post("/api/auth/register", json={
+            "email": "newuser@example.com",
+            "password": "Password123",
+            "display_name": "New User"
+        })
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "access_token" in data
+        assert "voxly_refresh" in resp.headers.get("Set-Cookie", "")
+        
+        resp2 = client.post("/api/auth/login", json={
+            "email": "newuser@example.com",
+            "password": "Password123"
+        })
+        assert resp2.status_code == 200
+        data2 = resp2.get_json()
+        assert "access_token" in data2
+        assert "voxly_refresh" in resp2.headers.get("Set-Cookie", "")
+
+    def test_login_wrong_password_returns_401(self, temp_db):
+        client = app.test_client()
+        client.post("/api/auth/register", json={
+            "email": "wrongpass@example.com",
+            "password": "Password123"
+        })
+        resp = client.post("/api/auth/login", json={
+            "email": "wrongpass@example.com",
+            "password": "WrongPassword123"
+        })
+        assert resp.status_code == 401
+
+    def test_me_without_token_returns_401(self, temp_db):
+        client = app.test_client()
+        resp = client.get("/api/auth/me")
+        assert resp.status_code == 401
+
+    def test_refresh_token_issues_new_access_token(self, temp_db):
+        client = app.test_client()
+        resp = client.post("/api/auth/register", json={
+            "email": "refresh@example.com",
+            "password": "Password123"
+        })
+        cookie = resp.headers.get("Set-Cookie")
+        
+        resp2 = client.post("/api/auth/refresh", headers={"Cookie": cookie})
+        assert resp2.status_code == 200
+        data = resp2.get_json()
+        assert "access_token" in data

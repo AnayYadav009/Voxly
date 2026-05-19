@@ -36,23 +36,7 @@ import ConfirmDialog from './components/ConfirmDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const RECENT_LIMIT = 12;
-const BUDGET_GUESSES = {
-  food: 10000,
-  transport: 4000,
-  entertainment: 3000,
-  shopping: 5000,
-  utilities: 5000,
-  health: 3000,
-  education: 5000,
-  rent: 20000,
-  savings: 10000,
-  personal: 2000,
-  gifts: 2000,
-  charity: 1000,
-  insurance: 3000,
-  fees: 1000,
-  uncategorized: 2000,
-};
+
 
 const formatINR = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -80,6 +64,7 @@ const titleCase = (value) => {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 };
 
+// TODO: replace with structured fields from /api/summary once backend is updated
 const parseCurrencyValue = (line) => {
   if (!line) {
     return null;
@@ -91,6 +76,7 @@ const parseCurrencyValue = (line) => {
   return Number(match[1].replace(/,/g, ''));
 };
 
+// TODO: replace with structured fields from /api/summary once backend is updated
 const parseCategoryLine = (line) => {
   if (!line) {
     return [];
@@ -514,6 +500,7 @@ const VoiceFinanceDashboard = ({
           monthly_summary: data.dashboard.monthly_summary,
           category_totals: data.dashboard.category_totals,
           budget_alerts: data.dashboard.budget_alerts,
+          budget_status: data.dashboard.budget_status,
           monthly_total: data.dashboard.monthly_total,
         });
         setRecentExpenses(mapRecentExpenses(data.dashboard.recent_expenses || []));
@@ -575,6 +562,8 @@ const VoiceFinanceDashboard = ({
     recognition.continuous = false;
     recognition.interimResults = false;
 
+    let cancelled = false;
+
     recognition.onstart = () => {
       setIsRecording(true);
       setVoiceStatus('Listening...');
@@ -591,6 +580,7 @@ const VoiceFinanceDashboard = ({
     };
 
     recognition.onresult = async (event) => {
+      if (cancelled) return;
       const transcript = event.results[0][0].transcript;
       setVoiceStatus(`Heard: "${transcript}"`);
       setVoiceProcessing(true);
@@ -608,6 +598,7 @@ const VoiceFinanceDashboard = ({
 
     recognitionRef.current = recognition;
     return () => {
+      cancelled = true;
       recognition.stop();
     };
   }, [handleVoiceResponse]);
@@ -755,8 +746,8 @@ const VoiceFinanceDashboard = ({
     () =>
       categoryTotals.map((item) => {
         const budgetInfo = userBudgets[item.category];
-        const budget = budgetInfo ? budgetInfo.limit : (BUDGET_GUESSES[item.category] ?? 4000);
-        const percentage = budget ? Math.round((item.amount / budget) * 100) : 0;
+        const budget = budgetInfo ? budgetInfo.limit : 0;
+        const percentage = budget > 0 ? Math.round((item.amount / budget) * 100) : 0;
         return {
           category: titleCase(item.category),
           total: item.amount,

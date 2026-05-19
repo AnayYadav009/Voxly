@@ -77,7 +77,7 @@ def validate_password_strength(password: str) -> None:
     """
     if len(password) < 8:
         raise PasswordPolicyError("Password must be at least 8 characters long.")
-    if password.lower() == password or password.upper() == password:
+    if not any(c.isupper() for c in password) or not any(c.islower() for c in password):
         # Encourage mix of cases by requiring at least one lowercase and uppercase character.
         raise PasswordPolicyError("Password must include both uppercase and lowercase characters.")
     if not any(char.isdigit() for char in password):

@@ -32,7 +32,7 @@ from config import (
     DATE_FORMAT,
     REACT_BUILD_DIR,
     REACT_INDEX_FILE,
-    ensure_dirs,
+    init_dirs,
 )
 from database import (
     add_expense,
@@ -61,7 +61,7 @@ from visual_module import (
     get_recent_daily_totals,
 )
 from logger import log_error, log_info
-from groq_parser import parse_expense_groq as parse_expense
+from voice_module import parse_expense
 from database import get_cached_insight, save_insight
 from insight_module import generate_insight
 
@@ -72,7 +72,7 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
 ALLOWED_ORIGINS = os.environ.get("VOXLY_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
-ensure_dirs()  # make sure chart directory exists at startup
+init_dirs()  # make sure chart directory exists at startup
 
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 
@@ -707,6 +707,7 @@ def api_auth_logout():
     touch_user_timestamp(user["id"])
     resp = jsonify({"status": "logged_out"})
     resp.delete_cookie("voxly_refresh", samesite="Strict")
+    # TODO: add refresh token to a server-side blocklist to prevent reuse
     return resp
 
 
