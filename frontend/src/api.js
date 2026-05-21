@@ -40,10 +40,10 @@ const attemptRefresh = async () => {
     return refreshPromise;
   }
 
-  refreshPromise = fetch('/api/auth/refresh', {
+  refreshPromise = fetch(`${API_BASE}/api/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
+    credentials: 'include',
     body: JSON.stringify({}),
   })
     .then(async (response) => {
@@ -78,7 +78,7 @@ async function apiFetch(path, options = {}) {
   }
 
   const finalOptions = {
-    credentials: fetchOptions.credentials || 'same-origin',
+    credentials: fetchOptions.credentials || 'include',
     ...fetchOptions,
     headers,
     signal: controller.signal,

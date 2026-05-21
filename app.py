@@ -76,7 +76,7 @@ _RAW_ORIGINS = os.environ.get(
 )
 _ALLOWED_ORIGINS = [o.strip() for o in _RAW_ORIGINS.split(",") if o.strip()]
 
-CORS(app, origins=_ALLOWED_ORIGINS)
+CORS(app, origins=_ALLOWED_ORIGINS, supports_credentials=True)
 init_directories()  # make sure directories exist at startup
 
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
@@ -166,8 +166,8 @@ def _auth_success_response(user: Dict[str, Any]):
         "voxly_refresh",
         refresh_token,
         httponly=True,
-        samesite="Strict",
-        secure=os.environ.get("FLASK_ENV") == "production",
+        samesite="None",
+        secure=True,
         max_age=60 * 60 * 24 * 7,  # 7 days
     )
     return resp
@@ -749,8 +749,8 @@ def api_auth_refresh():
         "voxly_refresh",
         new_refresh_token,
         httponly=True,
-        samesite="Strict",
-        secure=os.environ.get("FLASK_ENV") == "production",
+        samesite="None",
+        secure=True,
         max_age=60 * 60 * 24 * 7,
     )
     return resp
