@@ -1,5 +1,5 @@
 const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/$/, '');
-const DEFAULT_TIMEOUT = 10000;
+const DEFAULT_TIMEOUT = 60000;
 
 let accessToken = null;
 let refreshPromise = null;
@@ -97,7 +97,7 @@ async function apiFetch(path, options = {}) {
         if (response.status === 401 && !skipAuth) {
           const refreshed = await attemptRefresh();
           if (refreshed && !_retry) {
-            return apiFetch(resolvedPath, { ...options, _retry: true });
+            return apiFetch(path, { ...options, _retry: true });
           }
         }
         const error = new Error(
@@ -137,6 +137,13 @@ export const getCategoryBreakdown = () => apiFetch('/api/charts/category-breakdo
 export const getDailyTotals = (days = 7) => apiFetch(`/api/charts/daily-totals?days=${days}`);
 export const getMonthlyTotals = (months = 6) => apiFetch(`/api/charts/monthly-totals?months=${months}`);
 export const getBudgets = () => apiFetch('/api/budgets');
+
+export const setBudget = (payload) =>
+  apiFetch('/api/budgets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 
 export const addExpense = (payload) =>
   apiFetch('/api/add', {

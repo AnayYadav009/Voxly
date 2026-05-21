@@ -21,6 +21,7 @@ import {
 import {
   addExpense as apiAddExpense,
   getBudgets,
+  setBudget as apiSetBudget,
   getCategoryBreakdown,
   getDailyTotals,
   getMonthlyTotals,
@@ -307,6 +308,7 @@ const VoiceFinanceDashboard = ({
   const [isRecording, setIsRecording] = useState(false);
   const [expandedSection, setExpandedSection] = useState(null);
   const [newExpense, setNewExpense] = useState({ amount: '', category: 'food' });
+  const [budgetForm, setBudgetForm] = useState({ amount: '', category: 'food' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -727,6 +729,32 @@ const VoiceFinanceDashboard = ({
       }
     } catch (err) {
       setToast({ type: 'error', message: err.message || 'Failed to add expense.' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSetBudget = async () => {
+    const amountValue = Number(budgetForm.amount);
+    if (!amountValue || amountValue <= 0) {
+      setToast({ type: 'error', message: 'Enter a positive budget amount.' });
+      return;
+    }
+    if (!budgetForm.category) {
+      setToast({ type: 'error', message: 'Select a category for the budget.' });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await apiSetBudget({
+        limit: amountValue,
+        category: budgetForm.category,
+      });
+      setToast({ type: 'success', message: `Budget for ${budgetForm.category} updated to ${formatINR(amountValue)}.` });
+      setBudgetForm({ amount: '', category: budgetForm.category });
+      await loadData();
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Failed to set budget.' });
     } finally {
       setSubmitting(false);
     }
@@ -1603,6 +1631,52 @@ const VoiceFinanceDashboard = ({
               }`}
             >
               {submitting ? 'Adding...' : 'Add Expense'}
+            </button>
+          </div>
+        </div>
+
+        {/* Set Budget Widget */}
+        <div className="app-card p-6 border-2 border-purple-200 mt-6 mb-6 bg-purple-50">
+          <h3 className="text-xl font-bold text-purple-900 mb-4">Set Monthly Budget</h3>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <input
+                type="number"
+                placeholder="Amount (₹)"
+                className="w-full rounded-lg border-2 border-purple-200 px-4 py-3 text-purple-900 focus:border-purple-500 focus:outline-none bg-white"
+                value={budgetForm.amount}
+                onChange={(e) => setBudgetForm({ ...budgetForm, amount: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSetBudget();
+                }}
+              />
+            </div>
+            <div className="flex-1 relative">
+              <select
+                className="w-full appearance-none rounded-lg border-2 border-purple-200 bg-white px-4 py-3 text-purple-900 focus:border-purple-500 focus:outline-none"
+                value={budgetForm.category}
+                onChange={(e) => setBudgetForm({ ...budgetForm, category: e.target.value })}
+              >
+                <option value="food">Food</option>
+                <option value="transport">Transport</option>
+                <option value="shopping">Shopping</option>
+                <option value="entertainment">Entertainment</option>
+                <option value="utilities">Utilities</option>
+                <option value="health">Health</option>
+                <option value="personal">Personal</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <button
+              onClick={handleSetBudget}
+              disabled={submitting}
+              className={`px-8 py-3 rounded-lg font-semibold transition-colors shadow-md ${
+                submitting
+                  ? 'bg-purple-300 text-white cursor-not-allowed'
+                  : 'bg-purple-600 text-white hover:bg-purple-700'
+              }`}
+            >
+              {submitting ? 'Setting...' : 'Set Budget'}
             </button>
           </div>
         </div>

@@ -366,12 +366,24 @@ def serve_react_app(path: str):
         404,
     )
 
-@app.route("/api/budgets")
+@app.route("/api/budgets", methods=["GET", "POST"])
 def api_budgets():
     """Handle API budgets."""
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
+        
+    if request.method == "POST":
+        data = request.json or {}
+        category = data.get("category")
+        limit = data.get("limit")
+        try:
+            limit_val = float(limit)
+            set_budget_limit(user["id"], category, limit_val)
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
     limits = get_budget_limits(user["id"])
     data = {cat: {"limit": lim.limit, "warn_ratio": lim.warn_ratio} for cat, lim in limits.items()}
     return jsonify(data)
