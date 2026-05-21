@@ -14,4 +14,3 @@ pytest>=7.0
 dateparser>=1.2
 word2number>=1.1
 gunicorn>=21.2.0
-libsql-experimental>=0.0.39
