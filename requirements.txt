@@ -16,4 +16,4 @@ word2number>=1.1
 gunicorn>=21.2.0
 groq>=0.4.2
 Flask-Limiter>=3.5.0
-libsql-experimental>=0.0.39; sys_platform == 'linux'
+libsql-client>=0.0.5
