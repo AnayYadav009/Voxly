@@ -7,7 +7,7 @@ describe('ConfirmDialog', () => {
     const { container } = render(
       <ConfirmDialog open={false} options={[]} onConfirm={() => {}} onCancel={() => {}} />
     );
-    expect(container.firstChild).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('renders title, message, and option buttons when open', () => {

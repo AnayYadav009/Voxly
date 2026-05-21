@@ -36,7 +36,10 @@ formatter = logging.Formatter(
 )
 
 # Ensure log dir exists
-os.makedirs(LOG_DIR, exist_ok=True)
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+except OSError:
+    pass
 
 # Use a rotating file handler to keep logs manageable
 file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")

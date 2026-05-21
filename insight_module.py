@@ -4,7 +4,7 @@ Falls back to a rule-based heuristic if Groq is unavailable.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from config import GROQ_ENABLED, GROQ_INSIGHT_MODEL, GROQ_API_KEY
 from logger import log_error, log_info

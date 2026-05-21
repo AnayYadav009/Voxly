@@ -36,6 +36,7 @@ import ConfirmDialog from './components/ConfirmDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const RECENT_LIMIT = 12;
+const BUDGET_GUESSES = { food: 5000, transport: 3000, utilities: 2000, shopping: 2000, entertainment: 1000 };
 
 
 const formatINR = (value) => {
@@ -254,6 +255,42 @@ const computeDailySpending = (expenses = []) => {
   });
   return buckets.map(({ day, amount }) => ({ day, amount }));
 };
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, message: error?.message || 'An unexpected error occurred.' };
+  }
+
+  componentDidCatch(error, info) {
+    // Log to console so developers can see the stack trace
+    console.error('ErrorBoundary caught:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-blue-50 flex items-center justify-center px-4">
+          <div className="max-w-md w-full bg-white rounded-2xl border border-red-200 shadow-lg p-8 text-center">
+            <h2 className="text-xl font-bold text-red-700 mb-2">Something went wrong</h2>
+            <p className="text-sm text-red-600 mb-4">{this.state.message}</p>
+            <button
+              onClick={() => this.setState({ hasError: false, message: '' })}
+              className="px-6 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const VoiceFinanceDashboard = ({
   user,
@@ -1301,9 +1338,6 @@ const VoiceFinanceDashboard = ({
                     Recent monthly spending totals
                   </div>
                   {forecast && forecast.projected_total !== null && (() => {
-                    const projectedHeight = maxMonthly
-                      ? Math.min((forecast.projected_total / maxMonthly) * 208, 208)
-                      : 0;
                     return (
                       <div className="mt-2 pt-2 border-t border-blue-200 flex items-center gap-2 text-xs text-blue-700 justify-center">
                         <div className="flex items-center gap-1">
@@ -1800,12 +1834,14 @@ const ProtectedApp = () => {
     return <AuthScreen />;
   }
   return (
-    <VoiceFinanceDashboard
-      user={user}
-      preferences={preferences}
-      onLogout={logout}
-      onToggleLogging={setLoggingPreference}
-    />
+    <ErrorBoundary>
+      <VoiceFinanceDashboard
+        user={user}
+        preferences={preferences}
+        onLogout={logout}
+        onToggleLogging={setLoggingPreference}
+      />
+    </ErrorBoundary>
   );
 };
 

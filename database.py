@@ -97,12 +97,40 @@ def _ensure_column(conn, table, column, definition):
         except sqlite3.Error as exc:
             log_error("Failed to ensure column %s on %s: %s", column, table, exc)
 
+try:
+    import libsql_experimental as _libsql  # type: ignore
+    _LIBSQL_AVAILABLE = True
+except ImportError:
+    _LIBSQL_AVAILABLE = False
+
+
 def create_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
-    """Create connection."""
-    conn = sqlite3.connect(db_name, timeout=10.0)
+    """Return a database connection.
+
+    In production (TURSO_URL + TURSO_TOKEN set) returns an embedded-replica
+    libsql connection that syncs with Turso cloud.  Falls back to local
+    SQLite for development and test runs.
+    """
+    import os as _os
+    turso_url = _os.environ.get("TURSO_URL", "").strip()
+    turso_token = _os.environ.get("TURSO_TOKEN", "").strip()
+
+    if turso_url and turso_token and _LIBSQL_AVAILABLE:
+        conn = _libsql.connect(
+            database="/tmp/voxly_replica.db",
+            sync_url=turso_url,
+            auth_token=turso_token,
+        )
+        try:
+            conn.sync()
+        except Exception:
+            pass  # first connect before schema exists — safe to ignore
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    # Local fallback — development and pytest
+    conn = sqlite3.connect(db_name)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
 
 @contextmanager
@@ -681,8 +709,6 @@ def get_recurring_expenses(
         return []
 
     # Group by (category, amount_bucket)
-    from itertools import groupby
-    from math import isclose
 
     groups: Dict[tuple, List[dict]] = {}
     for row in rows:

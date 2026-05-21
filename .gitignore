@@ -26,8 +26,9 @@ frontend/node_modules/
 # VS Code workspace settings (optional)
 .vscode/
 
-# Pytest and coverage
+# Pytest, ruff, and coverage
 .pytest_cache/
+.ruff_cache/
 .coverage
 coverage.xml
 htmlcov/

@@ -4,6 +4,7 @@ Loads environment variables and sets up project-wide constants,
 ensuring security defaults are respected depending on the environment.
 """
 import os
+import warnings
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,6 +26,11 @@ LOG_FILE = os.path.join(LOG_DIR, "app.log")
 DATE_FORMAT = "%Y-%m-%d"
 
 _JWT_SECRET_DEFAULT = "dev-secret-change-me"
+# --- Turso (cloud SQLite) — set both in production, leave blank for local dev ---
+TURSO_URL   = os.environ.get("TURSO_URL", "")
+TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
+# --- CORS — comma-separated list of allowed frontend origins ---
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:3000")
 JWT_SECRET = os.environ.get("VOXLY_JWT_SECRET", _JWT_SECRET_DEFAULT)
 JWT_ALGORITHM = os.environ.get("VOXLY_JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRES_MINUTES = int(os.environ.get("VOXLY_JWT_EXPIRES_MINUTES", "60"))
@@ -39,9 +45,15 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_ENABLED = bool(GROQ_API_KEY)
 
-def init_dirs():
-    """Ensure required directories exist."""
+def init_directories() -> None:
+    """Create required runtime directories. Call once at application startup."""
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(CHART_DIR, exist_ok=True)
+    if JWT_SECRET == "dev-secret-change-me":
+        warnings.warn(
+            "VOXLY_JWT_SECRET is set to the default development value. "
+            "Set the VOXLY_JWT_SECRET environment variable before deploying.",
+            stacklevel=2,
+        )
 
 

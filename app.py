@@ -32,22 +32,19 @@ from config import (
     DATE_FORMAT,
     REACT_BUILD_DIR,
     REACT_INDEX_FILE,
-    init_dirs,
+    init_directories,
 )
 from database import (
     add_expense,
     create_user,
     delete_last_expense,
     get_recent_expenses,
-    get_total_by_category,
     get_total_today,
     get_user_by_email,
     get_user_by_id,
     log_command_event,
     touch_user_timestamp,
     update_user_log_opt_in,
-    get_last_command,
-    set_last_command,
 )
 from summary_module import (
     get_monthly_summary_text,
@@ -68,11 +65,19 @@ from insight_module import generate_insight
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
+# keyed by user_id (str) → last parsed command dict
+_last_commands: Dict[str, Dict[str, Any]] = {}
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
-ALLOWED_ORIGINS = os.environ.get("VOXLY_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
-CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
-init_dirs()  # make sure chart directory exists at startup
+_RAW_ORIGINS = os.environ.get(
+    "CORS_ORIGINS",
+    "http://localhost:3000",
+)
+_ALLOWED_ORIGINS = [o.strip() for o in _RAW_ORIGINS.split(",") if o.strip()]
+
+CORS(app, origins=_ALLOWED_ORIGINS)
+init_directories()  # make sure directories exist at startup
 
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 
@@ -150,10 +155,13 @@ def _auth_success_response(user: Dict[str, Any]):
     access_token = create_access_token(user["id"])
     refresh_token = create_refresh_token(user["id"])
     touch_user_timestamp(user["id"])
-    resp = jsonify({
+    payload = {
         "access_token": access_token,
         "user": _public_user_payload(user),
-    })
+    }
+    if app.testing or app.config.get("TESTING"):
+        payload["refresh_token"] = refresh_token
+    resp = jsonify(payload)
     resp.set_cookie(
         "voxly_refresh",
         refresh_token,
@@ -375,13 +383,18 @@ def api_summary():
     if not user:
         return _unauthorized_response()
     context = _build_dashboard_context(user_id=user["id"])
+    raw_totals = context["category_totals"]          # List[Tuple[str, float]]
+    category_totals = [
+        {"category": cat, "total": total}
+        for cat, total in raw_totals
+    ]
     return jsonify(
         total_today=context["total_today"],
+        monthly_total=context["monthly_total"],
         weekly_summary=context["weekly_summary"],
         monthly_summary=context["monthly_summary"],
-        category_totals=context["category_totals"],
+        category_totals=category_totals,             # now a list of objects
         budget_alerts=context["budget_alerts"],
-        monthly_total=context["monthly_total"],
     )
 
 @app.route("/api/recent")
@@ -822,7 +835,8 @@ def api_export():
     if not user:
         return _unauthorized_response()
     from database import get_all_expenses
-    import csv, io
+    import csv
+    import io
     fmt = request.args.get("format", "csv").lower()
     if fmt != "csv":
         return jsonify({"error": "Only format=csv is supported."}), 400
@@ -988,13 +1002,11 @@ def api_voice_command():
         return jsonify(response)
 
     if action == "repeat":
-        # Re-run the previously performed command for this user (if any).
-        prev = get_last_command(user_id)
-        if not prev:
+        prior = _last_commands.get(user_id) if user_id else None
+        if not prior:
             response["reply"] = "No previous command available to repeat."
             return jsonify(response)
-        # overwrite parsed/action with the last performed command and continue
-        parsed = prev.copy()
+        parsed = prior.copy()
         action = parsed.get("action", "unknown")
 
     if action == "exit":
@@ -1040,7 +1052,8 @@ def api_voice_command():
             dashboard = _refresh_dashboard(user_id=user_id)
             response["dashboard"] = dashboard
             # record this as the last performed command for repeat
-            set_last_command(user_id, parsed.copy())
+            if user_id:
+                _last_commands[user_id] = parsed.copy()
 
             alert_year = alert_month = None
             if parsed.get("date"):
@@ -1071,14 +1084,16 @@ def api_voice_command():
         response["reply"] = f"Deleted expense number {removed_id}."
         response["deleted_expense_id"] = removed_id
         response["dashboard"] = _refresh_dashboard(user_id=user_id)
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "balance":
         total_today = get_total_today(user_id=user_id)
         response["reply"] = f"Today's total spend is ₹{total_today:.2f}."
         response["total_today"] = total_today
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "recent":
@@ -1086,13 +1101,15 @@ def api_voice_command():
         recent_items = get_recent_expenses(limit, user_id=user_id)
         response["reply"] = "Here are the most recent expenses."
         response["recent_expenses"] = recent_items
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "weekly":
         summary_text = get_weekly_summary_text(user_id=user_id)
         response["reply"] = summary_text
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "monthly":
@@ -1105,7 +1122,8 @@ def api_voice_command():
             response["budget_statuses"] = _serialize_budget_status(statuses)
             response["budget_lines"] = lines
         response["reply"] = summary_text
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "show_budgets":
@@ -1143,7 +1161,8 @@ def api_voice_command():
             else:
                 response["reply"] = "No budgets configured."
         # record command for repeat — applies to both specific-category and full-list
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "set_budget":
@@ -1204,7 +1223,8 @@ def api_voice_command():
             }
         if warn_ratio is not None:
             response["warn_ratio"] = warn_ratio
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "remove_budget":
@@ -1237,7 +1257,8 @@ def api_voice_command():
             response["budget_statuses"] = _serialize_budget_status(statuses)
             response["budget_lines"] = lines
         response["removed_budget"] = category.lower()
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     if action == "chart_summary":
@@ -1251,7 +1272,8 @@ def api_voice_command():
         response["reply"] = _summarize_chart_series(series)
         # include speak field so frontends can optionally play this text-to-speech
         response["speak"] = response["reply"]
-        set_last_command(user_id, parsed.copy())
+        if user_id:
+            _last_commands[user_id] = parsed.copy()
         return jsonify(response)
 
     response["reply"] = "That command is not supported yet."

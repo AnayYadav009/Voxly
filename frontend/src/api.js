@@ -1,3 +1,4 @@
+const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/$/, '');
 const DEFAULT_TIMEOUT = 10000;
 
 let accessToken = null;
@@ -66,6 +67,7 @@ const attemptRefresh = async () => {
 
 async function apiFetch(path, options = {}) {
   const { timeout = DEFAULT_TIMEOUT, skipAuth = false, _retry = false, ...rest } = options;
+  const resolvedPath = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const { headers: customHeaders, ...fetchOptions } = rest;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -84,7 +86,7 @@ async function apiFetch(path, options = {}) {
 
   const attemptRequest = async (retriesLeft) => {
     try {
-      const response = await fetch(path, finalOptions);
+      const response = await fetch(resolvedPath, finalOptions);
       const data = response.status === 204 ? null : await response.json().catch(() => null);
 
       if (!response.ok) {
@@ -95,7 +97,7 @@ async function apiFetch(path, options = {}) {
         if (response.status === 401 && !skipAuth) {
           const refreshed = await attemptRefresh();
           if (refreshed && !_retry) {
-            return apiFetch(path, { ...options, _retry: true });
+            return apiFetch(resolvedPath, { ...options, _retry: true });
           }
         }
         const error = new Error(

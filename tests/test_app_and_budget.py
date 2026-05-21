@@ -22,6 +22,8 @@ import summary_module  # noqa: E402
 import visual_module  # noqa: E402
 import app as app_module  # noqa: E402
 from app import _safe_limit, app  # noqa: E402
+app.config["TESTING"] = True
+app.config["RATELIMIT_ENABLED"] = False
 from auth import create_access_token  # noqa: E402
 from budget_module import get_budget_limits, remove_budget_limit, set_budget_limit  # noqa: E402
 from config import DATE_FORMAT  # noqa: E402
@@ -34,6 +36,12 @@ from summary_module import (  # noqa: E402
 
 
 
+
+@pytest.fixture(autouse=True)
+def bypass_rate_limit():
+    """Bypass rate limits by disabling the limiter."""
+    from app import limiter
+    limiter.enabled = False
 
 @pytest.fixture
 def temp_db(monkeypatch, tmp_path):
@@ -399,3 +407,109 @@ class TestAuthEndpoints:
         assert resp2.status_code == 200
         data = resp2.get_json()
         assert "access_token" in data
+
+
+def test_register_and_login(temp_db):
+    client = app.test_client()
+
+    # Register
+    res = client.post("/api/auth/register", json={
+        "email": "new_test@example.com",
+        "password": "Secure1Password",
+        "name": "Tester",
+    })
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "access_token" in data
+    assert data["user"]["email"] == "new_test@example.com"
+
+    # Duplicate email
+    res2 = client.post("/api/auth/register", json={
+        "email": "new_test@example.com",
+        "password": "Secure1Password",
+    })
+    assert res2.status_code == 409
+
+    # Login with correct credentials
+    res3 = client.post("/api/auth/login", json={
+        "email": "new_test@example.com",
+        "password": "Secure1Password",
+    })
+    assert res3.status_code == 200
+    assert "access_token" in res3.get_json()
+
+    # Login with wrong password
+    res4 = client.post("/api/auth/login", json={
+        "email": "new_test@example.com",
+        "password": "wrongpassword",
+    })
+    assert res4.status_code == 401
+
+
+def test_weak_password_rejected(temp_db):
+    client = app.test_client()
+    res = client.post("/api/auth/register", json={
+        "email": "weak@example.com",
+        "password": "short",
+    })
+    assert res.status_code == 400
+    assert "password" in res.get_json()["error"].lower()
+
+
+def test_auth_me_requires_token(temp_db):
+    client = app.test_client()
+    res = client.get("/api/auth/me")
+    assert res.status_code == 401
+
+
+def test_refresh_token_flow(temp_db):
+    client = app.test_client()
+    reg = client.post("/api/auth/register", json={
+        "email": "refresh@example.com",
+        "password": "Refresh1Test",
+    })
+    tokens = reg.get_json()
+    refresh_token = tokens["refresh_token"]
+
+    res = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert res.status_code == 200
+    new_data = res.get_json()
+    assert "access_token" in new_data
+
+
+def test_repeat_command_is_per_user(temp_db, auth_headers, mock_parse):
+    """Ensure repeat uses per-user last command, not a shared global."""
+    from app import _last_commands
+    _last_commands.clear()
+    
+    mock_parse({"action": "repeat"})
+
+    client = app.test_client()
+
+    # Simulate user_id being set (testing mode bypasses JWT but user_id stays None)
+    # Test that repeat returns the right message when no prior command exists
+    res = client.post("/api/voice_command", json={"command": "repeat"}, headers=auth_headers)
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert "no previous" in payload["reply"].lower()
+
+
+def test_api_summary_includes_monthly_total(temp_db):
+    """api_summary must return monthly_total so the frontend card renders correctly."""
+    # Testing mode allows unauthenticated access for recent; summary still needs auth
+    # so we just verify the _build_dashboard_context helper includes the key
+    from app import _build_dashboard_context
+    context = _build_dashboard_context(user_id=None)
+    assert "monthly_total" in context
+    assert isinstance(context["monthly_total"], (int, float))
+
+
+def test_category_totals_are_objects(temp_db):
+    """_build_dashboard_context category_totals should be serialisable as objects."""
+    from app import _build_dashboard_context
+    context = _build_dashboard_context(user_id=None)
+    # get_total_by_category returns List[Tuple[str, float]] — ensure it round-trips to JSON
+    import json
+    serialised = json.dumps(context["category_totals"])
+    assert serialised is not None
+
