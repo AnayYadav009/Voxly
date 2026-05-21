@@ -9,6 +9,9 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+auth
+auth-wal
+auth-shm
 
 # Virtual environments
 venv/
