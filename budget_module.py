@@ -11,9 +11,9 @@ from typing import Dict, List, Optional
 from config import DEFAULT_BUDGET_WARN_THRESHOLD
 from database import (
     get_monthly_totals_by_category,
-    get_user_budgets,
-    set_user_budget as db_set_user_budget,
-    remove_user_budget as db_remove_user_budget,
+    get_budgets_for_user,
+    upsert_budget,
+    delete_budget,
 )
 from logger import log_error, log_info
 
@@ -42,35 +42,29 @@ class BudgetStatus:
     level: str
     message: str
 
-def get_budget_limits(user_id: str, path: Optional[str] = None) -> Dict[str, BudgetLimit]:
-    """Retrieve all budget limits for a specific user.
-    
-    Args:
-        user_id: The ID of the user.
-        
-    Returns:
-        Dict[str, BudgetLimit]: A mapping of category names to BudgetLimit objects.
-
-    """
+def get_budget_limits(user_id: str) -> Dict[str, BudgetLimit]:
+    """Retrieve all budget limits for a specific user from DB."""
     if not user_id:
-        return {}
+        raise ValueError("user_id is required")
+
     budgets: Dict[str, BudgetLimit] = {}
-    db_budgets = get_user_budgets(user_id)
+    db_budgets = get_budgets_for_user(user_id)
     for row in db_budgets:
         category = row["category"].lower()
-        limit = float(row["limit_amount"])
+        limit = float(row["limit_amt"])
         if limit <= 0:
             continue
-        warn_ratio = float(row["warn_ratio"])
+        warn_ratio = float(row["warn_at"])
         warn_ratio = min(max(warn_ratio, 0.0), 1.0)
         budgets[category] = BudgetLimit(category=category, limit=limit, warn_ratio=warn_ratio)
     return budgets
 
-def set_budget_limit(user_id: str, category: str, limit: float, warn_at: Optional[float] = None) -> None:
-    """Create or update a monthly budget for a category and persist it in the database."""
-    category_key = category.lower().strip()
+def set_budget_limit(category: str, limit: float, warn_at: Optional[float] = None, user_id: Optional[str] = None) -> None:
+    """Create or update a monthly budget for a category and persist it."""
     if not user_id:
         raise ValueError("user_id is required")
+        
+    category_key = category.lower().strip()
     if not category_key:
         raise ValueError("category is required")
     if limit is None or float(limit) <= 0:
@@ -80,22 +74,23 @@ def set_budget_limit(user_id: str, category: str, limit: float, warn_at: Optiona
         warn_at = DEFAULT_BUDGET_WARN_THRESHOLD
 
     try:
-        db_set_user_budget(user_id, category_key, float(limit), float(warn_at))
+        upsert_budget(user_id, category_key, float(limit), float(warn_at))
         log_info("Set budget for %s (user %s): limit=%s warn_at=%s", category_key, user_id, limit, warn_at)
     except Exception as exc:
         log_error("Failed to persist budget config: %s", exc)
         raise
 
-def remove_budget_limit(user_id: str, category: str) -> bool:
+def remove_budget_limit(category: str, user_id: Optional[str] = None, path: Optional[str] = None) -> bool:
     """Remove a monthly budget for the category. Returns True if removed."""
-    category_key = category.lower().strip()
     if not user_id:
         raise ValueError("user_id is required")
+
+    category_key = category.lower().strip()
     if not category_key:
         raise ValueError("category is required")
 
     try:
-        removed = db_remove_user_budget(user_id, category_key)
+        removed = delete_budget(user_id, category_key)
         if removed:
             log_info("Removed budget for %s (user %s)", category_key, user_id)
         return removed
@@ -143,28 +138,16 @@ def _assess_single_budget(spent: float, limit: BudgetLimit) -> BudgetStatus:
     )
 
 def evaluate_monthly_budgets(
-    user_id: str,
     year: Optional[int] = None,
     month: Optional[int] = None,
-    path: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> List[BudgetStatus]:
-    """Evaluate spending against budgets for a specific month.
-    
-    Args:
-        user_id: The ID of the user.
-        year: The year to evaluate (defaults to current year).
-        month: The month to evaluate (defaults to current month).
-        
-    Returns:
-        List[BudgetStatus]: A list of BudgetStatus evaluations for each configured category.
-
-    """
-    if not user_id:
-        return []
     now = datetime.now()
     year = year or now.year
     month = month or now.month
-    limits = get_budget_limits(user_id, path=path)
+    if not user_id:
+        return []
+    limits = get_budget_limits(user_id)
     if not limits:
         return []
     totals = get_monthly_totals_by_category(year=year, month=month, user_id=user_id)
@@ -201,7 +184,7 @@ def get_alert_for_category(
     limit = limits.get(category_key)
     if not limit:
         return None
-    statuses = evaluate_monthly_budgets(user_id=user_id, year=year, month=month, path=path)
+    statuses = evaluate_monthly_budgets(year=year, month=month, user_id=user_id, path=path)
     for status in statuses:
         if status.category == category_key and status.level in {"warning", "critical"}:
             return status

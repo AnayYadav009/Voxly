@@ -38,11 +38,14 @@ from database import (
     add_expense,
     create_user,
     delete_last_expense,
+    get_dashboard_snapshot,
     get_recent_expenses,
     get_total_today,
     get_user_by_email,
     get_user_by_id,
+    get_cached_insight,
     log_command_event,
+    save_insight,
     touch_user_timestamp,
     update_user_log_opt_in,
 )
@@ -59,14 +62,12 @@ from visual_module import (
 )
 from logger import log_error, log_info
 from voice_module import parse_expense
-from database import get_cached_insight, save_insight
 from insight_module import generate_insight
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-# keyed by user_id (str) → last parsed command dict
-_last_commands: Dict[str, Dict[str, Any]] = {}
+
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
@@ -308,12 +309,24 @@ def _fetch_totals(user_id: Optional[str] = None):
 def _build_dashboard_context(user_id: Optional[str] = None):
     charts = generate_all_charts(user_id=user_id)
     budget_statuses = evaluate_monthly_budgets(user_id=user_id) if user_id else []
-    total_today, category_totals = _fetch_totals(user_id)
+    
+    if user_id:
+        now = datetime.now()
+        snapshot = get_dashboard_snapshot(user_id, now.year, now.month)
+        total_today = snapshot["total_today"]
+        monthly_total = snapshot["monthly_total"]
+        category_totals = snapshot["category_totals"]
+        recent_expenses = snapshot["recent_expenses"]
+    else:
+        total_today, category_totals = _fetch_totals(user_id)
+        monthly_total = get_monthly_total(user_id=user_id)
+        recent_expenses = get_recent_expenses(5, user_id=user_id)
+
     return {
         "total_today": total_today,
-        "monthly_total": get_monthly_total(user_id=user_id),
+        "monthly_total": monthly_total,
         "category_totals": category_totals,
-        "recent_expenses": get_recent_expenses(5, user_id=user_id),
+        "recent_expenses": recent_expenses,
         "weekly_summary": get_weekly_summary_text(user_id=user_id),
         "monthly_summary": get_monthly_summary_text(user_id=user_id),
         "budget_status": [
@@ -379,7 +392,7 @@ def api_budgets():
         limit = data.get("limit")
         try:
             limit_val = float(limit)
-            set_budget_limit(user["id"], category, limit_val)
+            set_budget_limit(category, limit_val, user_id=user["id"])
             return jsonify({"success": True})
         except Exception as e:
             return jsonify({"error": str(e)}), 400
@@ -1014,12 +1027,8 @@ def api_voice_command():
         return jsonify(response)
 
     if action == "repeat":
-        prior = _last_commands.get(user_id) if user_id else None
-        if not prior:
-            response["reply"] = "No previous command available to repeat."
-            return jsonify(response)
-        parsed = prior.copy()
-        action = parsed.get("action", "unknown")
+        response["reply"] = "Please re-send the command you want to repeat."
+        return jsonify(response)
 
     if action == "exit":
         response["reply"] = "The assistant stays ready. Say another command when you are ready."
@@ -1064,8 +1073,7 @@ def api_voice_command():
             dashboard = _refresh_dashboard(user_id=user_id)
             response["dashboard"] = dashboard
             # record this as the last performed command for repeat
-            if user_id:
-                _last_commands[user_id] = parsed.copy()
+            # removed due to stateless repeat handling
 
             alert_year = alert_month = None
             if parsed.get("date"):
@@ -1097,7 +1105,7 @@ def api_voice_command():
         response["deleted_expense_id"] = removed_id
         response["dashboard"] = _refresh_dashboard(user_id=user_id)
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     if action == "balance":
@@ -1105,7 +1113,7 @@ def api_voice_command():
         response["reply"] = f"Today's total spend is ₹{total_today:.2f}."
         response["total_today"] = total_today
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     if action == "recent":
@@ -1114,14 +1122,14 @@ def api_voice_command():
         response["reply"] = "Here are the most recent expenses."
         response["recent_expenses"] = recent_items
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     if action == "weekly":
         summary_text = get_weekly_summary_text(user_id=user_id)
         response["reply"] = summary_text
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     if action == "monthly":
@@ -1135,7 +1143,7 @@ def api_voice_command():
             response["budget_lines"] = lines
         response["reply"] = summary_text
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     if action == "show_budgets":
@@ -1174,7 +1182,7 @@ def api_voice_command():
                 response["reply"] = "No budgets configured."
         # record command for repeat — applies to both specific-category and full-list
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     if action == "set_budget":
@@ -1192,7 +1200,7 @@ def api_voice_command():
             response["reply"] = "Please provide a positive budget amount."
             return jsonify(response), 400
         try:
-            set_budget_limit(user_id, category, limit_value, warn_at=warn_ratio if warn_ratio is not None else None)
+            set_budget_limit(category, limit_value, warn_at=warn_ratio if warn_ratio is not None else None, user_id=user_id)
             log_info(
                 "Voice set budget for user=%s category=%s amount=%s warn_ratio=%s",
                 user_id,
@@ -1236,7 +1244,7 @@ def api_voice_command():
         if warn_ratio is not None:
             response["warn_ratio"] = warn_ratio
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     if action == "remove_budget":
@@ -1245,7 +1253,7 @@ def api_voice_command():
             response["reply"] = "Please tell me which budget to remove."
             return jsonify(response), 400
         try:
-            removed = remove_budget_limit(user_id, category)
+            removed = remove_budget_limit(category, user_id=user_id)
             log_info("Voice remove budget for user=%s category=%s removed=%s", user_id, category, removed)
         except ValueError as exc:
             response["reply"] = str(exc)
@@ -1270,7 +1278,7 @@ def api_voice_command():
             response["budget_lines"] = lines
         response["removed_budget"] = category.lower()
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     if action == "chart_summary":
@@ -1285,7 +1293,7 @@ def api_voice_command():
         # include speak field so frontends can optionally play this text-to-speech
         response["speak"] = response["reply"]
         if user_id:
-            _last_commands[user_id] = parsed.copy()
+            pass
         return jsonify(response)
 
     response["reply"] = "That command is not supported yet."

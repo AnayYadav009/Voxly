@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DB_NAME = "expenses.db"
-LOG_DIR = "logs"
+DB_NAME = os.environ.get("VOXLY_DB_PATH", "expenses.db")
+LOG_DIR = os.environ.get("VOXLY_LOG_DIR", "logs")
 CHART_DIR = os.path.join("static", "charts")
 BUDGETS_FILE = "budgets.json"
 REACT_BUILD_DIR = os.path.join("frontend", "build")

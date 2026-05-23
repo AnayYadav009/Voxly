@@ -1,130 +1,123 @@
-# 🎙️ Voxly: Voice-Powered Personal Finance Tracker
+# Voxly: Voice-Powered Personal Finance Tracker
 
-Voxly is a modern, voice-enabled personal finance dashboard that combines a **Flask** backend with a **React** frontend. It leverages **Groq API** to process natural language commands, allowing users to manage their expenses, monitor budgets, and view financial insights through intuitive voice or text interactions.
+Voxly is a voice-enabled personal finance dashboard with a Flask backend and a React frontend. It helps users add expenses, monitor budgets, review summaries, and view spending insights through typed or spoken commands.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
 ![React](https://img.shields.io/badge/react-19-61dafb)
 
----
+## Features
 
-## ✨ Key Features
+- Natural language expense entry, such as "Add 500 for groceries" or "I spent 1200 on dinner".
+- Dashboard charts for category breakdowns, daily trends, and monthly totals.
+- Category budget limits with warning thresholds.
+- JWT authentication with secure password hashing.
+- Weekly and monthly summaries for quick spending review.
+- Optional Groq-powered insights when `GROQ_API_KEY` is configured.
 
-- **🗣️ Natural Language Processing:** Record expenses like "Add 500 for groceries" or "I spent 1200 on dinner" using LLM-driven intent recognition via Groq.
-- **📊 Real-time Dashboard:** Visualize spending habits with dynamic charts (Category Breakdown, Daily Trends, Monthly Totals).
-- **🛡️ Smart Budgeting:** Set category-specific limits and receive instant voice/visual alerts when you're nearing your threshold.
-- **🔐 Secure & Private:** Local-first SQLite database with JWT-based authentication and secure password hashing.
-- **📈 Insightful Summaries:** Get instant weekly and monthly text-to-speech summaries of your financial health.
-- **⚡ Responsive UI:** A clean, modern dashboard built with React and Tailwind CSS.
+## Tech Stack
 
----
+- Backend: Flask, SQLite or Turso/libSQL, Flask-Limiter, PyJWT, Groq
+- Frontend: React 19, Lucide React, Tailwind CSS
+- Voice I/O: Web Speech API in the browser, with Python CLI fallback modules
+- Testing: Pytest, Jest, React Testing Library
 
-## 🛠️ Tech Stack
-
-- **Backend:** Flask, SQLite, Flask-Limiter, PyJWT, Groq
-- **Frontend:** React 19, Lucide React, Tailwind CSS
-- **Voice I/O:** Web Speech API (Browser), Pyttsx3/SpeechRecognition (CLI/Fallback)
-- **Testing:** Pytest (Backend), Jest/React Testing Library (Frontend)
-
----
-
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
-- **Python 3.13+**
-- **Node.js 20+**
-- **Microphone Access** (for voice features)
 
-### 1. Backend Setup
+- Python 3.13+
+- Node.js 20+
+- Microphone access for browser voice features
+
+### Backend Setup
+
 ```powershell
-# Clone the repository
 git clone https://github.com/AnayYadav009/Voxly.git
 cd Voxly
 
-# Setup virtual environment
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 
-# Install dependencies
 pip install -r requirements.txt
+copy .env.example .env
 
-# Configure environment
-cp .env.example .env
-# Edit .env and set a secure VOXLY_JWT_SECRET
-
-# Start the server
 python app.py
 ```
 
-### Environment Variables
-Configure these in your `.env` file for production security:
+Set a strong `VOXLY_JWT_SECRET` in `.env` before using the app outside local development.
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `VOXLY_JWT_SECRET` | Secret key for JWT signing (**Required in Production**) | `voxly-insecure-dev-secret` |
-| `VOXLY_SESSION_SECRET` | Secret key for Flask sessions | (Randomly generated) |
-| `VOXLY_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins | `http://localhost:3000` |
-| `FLASK_ENV` | Set to `production` to enable secure cookies and stricter guards | `development` |
+### Frontend Setup
 
-**Optional environment variables:**
-- `GROQ_API_KEY` — Groq API key for AI-powered voice parsing and insights.
-  Free tier: 14,400 requests/day. Get one at https://console.groq.com
-- `GROQ_MODEL` — Groq model to use (default: llama-3.3-70b-versatile).
-
-### 2. Frontend Setup
 ```powershell
 cd frontend
 npm install
 npm start
 ```
-The dashboard will be available at `http://localhost:3000`.
 
----
+The frontend runs at `http://localhost:3000` and proxies API requests to `http://localhost:5000`.
 
-## 🗣️ Example Commands
+## Environment Variables
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `VOXLY_JWT_SECRET` | Secret key for JWT signing. Required in production. | `voxly-insecure-dev-secret` |
+| `VOXLY_SESSION_SECRET` | Secret key for Flask sessions. | Random per process |
+| `CORS_ORIGINS` | Comma-separated list of allowed frontend origins. | `http://localhost:3000` |
+| `FLASK_ENV` | Set to `production` for production deployments. | `development` |
+| `TURSO_URL` | Optional Turso/libSQL database URL. | Local SQLite |
+| `TURSO_TOKEN` | Optional Turso/libSQL auth token. | None |
+| `GROQ_API_KEY` | Optional API key for AI-powered parsing and insights. | None |
+| `GROQ_MODEL` | Groq model for command parsing. | `llama-3.3-70b-versatile` |
+
+## Example Commands
 
 | Intent | Example Phrase |
 | :--- | :--- |
-| **Add Expense** | "Add 500 to food" / "Spent 100 on travel yesterday" |
-| **Check Balance** | "What's my balance today?" |
-| **Review History** | "Show recent expenses" |
-| **Summarize** | "Give me a weekly summary" |
-| **Budgeting** | "Set budget for shopping to 5000" |
-| **Correction** | "Delete last expense" |
+| Add expense | "Add 500 to food" |
+| Check balance | "What's my balance today?" |
+| Review history | "Show recent expenses" |
+| Summarize | "Give me a weekly summary" |
+| Budgeting | "Set budget for shopping to 5000" |
+| Correction | "Delete last expense" |
 
----
-
-## 🧪 Running Tests
+## Running Tests
 
 ### Backend
+
 ```powershell
 pytest
 ```
 
 ### Frontend
+
 ```powershell
 cd frontend
 npm test -- --watchAll=false
+npm run build
 ```
 
----
+## Project Structure
 
-## 📂 Project Structure
+- `app.py`: Flask entry point and REST API routes.
+- `auth.py`: Authentication and token helpers.
+- `database.py`: SQLite and Turso/libSQL data access.
+- `budget_module.py`: Budget limits, evaluation, and alerts.
+- `summary_module.py`: Spending totals and summary text.
+- `voice_module.py`: Natural language command parsing.
+- `frontend/`: React dashboard and UI components.
+- `tests/`: Backend pytest suite.
 
-- `app.py`: Main Flask entry point and REST API.
-- `voice_module.py`: Voice input processing and command parsing via Groq.
-- `budget_module.py`: Budget evaluation and alert logic.
-- `database.py`: SQLite interaction layer.
-- `frontend/`: React source code and dashboard components.
-- `visual_module.py`: Data aggregation for charts.
+## Deployment
 
----
+`render.yaml` contains a Render web service definition for the Flask API. Configure production secrets in the Render dashboard, especially `VOXLY_JWT_SECRET`, `TURSO_URL`, `TURSO_TOKEN`, and `CORS_ORIGINS`.
 
-## 🤝 Contributing
-Contributions are welcome! Please feel free to submit a Pull Request or open an issue for any bugs or feature requests.
+## Contributing
 
-## 📄 License
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, test, and pull request guidance.
 
----
-MIT © 2026 [Anay Yadav](https://github.com/AnayYadav009)
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+MIT (c) 2026 [Anay Yadav](https://github.com/AnayYadav009)

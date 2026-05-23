@@ -63,6 +63,19 @@ CREATE TABLE IF NOT EXISTS user_budgets (
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS budgets (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id   TEXT NOT NULL,
+    category  TEXT NOT NULL,
+    limit_amt REAL NOT NULL,
+    warn_at   REAL NOT NULL DEFAULT 0.8,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, category),
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(user_id);
+
 CREATE TABLE IF NOT EXISTS user_states (
     user_id TEXT PRIMARY KEY,
     last_command TEXT,
@@ -784,6 +797,72 @@ def get_all_expenses(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         raise
 
 def get_user_budgets(user_id: str) -> List[Dict[str, Any]]:
+    """Retrieve all active budgets for a given user.
+    
+    Returns a list of dicts: [{"category": str, "limit_amt": float, "warn_at": float}]
+    """
+    try:
+        with create_connection() as conn:
+            rows = conn.execute(
+                "SELECT category, limit_amount, warn_ratio FROM user_budgets WHERE user_id = ?",
+                (user_id,)
+            ).fetchall()
+            return [{"category": r["category"], "limit_amt": r["limit_amount"], "warn_at": r["warn_ratio"]} for r in rows]
+    except Exception as e:
+        log_error("Failed to retrieve budgets: %s", e)
+        return []
+
+def get_dashboard_snapshot(user_id: str, year: int, month: int) -> dict:
+    """Batch fetch all data needed for the dashboard in a single connection.
+    Includes today's total, monthly total, category totals, recent expenses, and sums for charts.
+    """
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    first_of_month = f"{year}-{month:02d}-01"
+    last_of_month = (datetime(year, month, 1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    last_of_month_str = last_of_month.strftime("%Y-%m-%d")
+
+    with create_connection() as conn:
+        # Today's Total
+        today_total = float(conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE user_id = ? AND date = ?",
+            (user_id, today)
+        ).fetchone()[0] or 0)
+
+        # Monthly Total
+        monthly_total = float(conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE user_id = ? AND date >= ? AND date <= ?",
+            (user_id, first_of_month, last_of_month_str)
+        ).fetchone()[0] or 0)
+
+        # Monthly Category Totals
+        cat_rows = conn.execute(
+            "SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? AND date >= ? AND date <= ? GROUP BY category ORDER BY total DESC",
+            (user_id, first_of_month, last_of_month_str)
+        ).fetchall()
+        category_totals = [(r["category"], float(r["total"])) for r in cat_rows]
+
+        # All-time Category Totals
+        all_cat_rows = conn.execute(
+            "SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? GROUP BY category ORDER BY total DESC",
+            (user_id,)
+        ).fetchall()
+        all_time_category_totals = [(r["category"], float(r["total"])) for r in all_cat_rows]
+
+        # Recent 5 Expenses
+        rec_rows = conn.execute(
+            "SELECT id, amount, category, description, date FROM expenses WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 5",
+            (user_id,)
+        ).fetchall()
+        recent_expenses = [dict(r) for r in rec_rows]
+
+    return {
+        "total_today": today_total,
+        "monthly_total": monthly_total,
+        "category_totals": category_totals,
+        "all_time_category_totals": all_time_category_totals,
+        "recent_expenses": recent_expenses
+    }
     """Get user budgets."""
     if not user_id:
         return []
@@ -834,6 +913,59 @@ def remove_user_budget(user_id: str, category: str) -> bool:
             return cur.rowcount > 0
     except sqlite3.Error as exc:
         log_error("Failed to remove user budget: %s", exc)
+        raise
+
+def upsert_budget(user_id: str, category: str, limit_amt: float, warn_at: float = 0.8) -> None:
+    """Upsert user budget into the budgets table."""
+    if not user_id or not category:
+        return
+    try:
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO budgets (user_id, category, limit_amt, warn_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, category) DO UPDATE SET
+                    limit_amt=excluded.limit_amt,
+                    warn_at=excluded.warn_at,
+                    updated_at=excluded.updated_at
+                """,
+                (user_id, category.lower(), limit_amt, warn_at, _current_timestamp())
+            )
+            conn.commit()
+    except sqlite3.Error as exc:
+        log_error("Failed to upsert budget: %s", exc)
+        raise
+
+def delete_budget(user_id: str, category: str) -> bool:
+    """Delete budget from the budgets table."""
+    if not user_id or not category:
+        return False
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                "DELETE FROM budgets WHERE user_id = ? AND category = ?",
+                (user_id, category.lower())
+            )
+            conn.commit()
+            return cur.rowcount > 0
+    except sqlite3.Error as exc:
+        log_error("Failed to delete budget: %s", exc)
+        raise
+
+def get_budgets_for_user(user_id: str) -> List[Dict[str, Any]]:
+    """Get all budgets for a user from the budgets table."""
+    if not user_id:
+        return []
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                "SELECT category, limit_amt, warn_at FROM budgets WHERE user_id = ?",
+                (user_id,)
+            )
+            return [dict(row) for row in cur.fetchall()]
+    except sqlite3.Error as exc:
+        log_error("Failed to fetch budgets: %s", exc)
         raise
 
 def get_last_command(user_id: str) -> Optional[Dict[str, Any]]:

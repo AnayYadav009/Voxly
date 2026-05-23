@@ -157,14 +157,14 @@ def test_voice_recent_invalid_limit(temp_db, auth_headers, mock_parse):
 def test_remove_budget_limit_roundtrip(temp_db):
     """Test function."""
     user_id = _test_user_id(temp_db)
-    set_budget_limit(user_id, "newcategory", 1234)
-    config = get_budget_limits(user_id)
+    set_budget_limit("newcategory", 1234, user_id=user_id)
+    config = get_budget_limits(user_id=user_id)
     assert "newcategory" in config
 
-    assert remove_budget_limit(user_id, "newcategory") is True
-    updated = get_budget_limits(user_id)
+    assert remove_budget_limit("newcategory", user_id=user_id) is True
+    updated = get_budget_limits(user_id=user_id)
     assert "newcategory" not in updated
-    assert remove_budget_limit(user_id, "newcategory") is False
+    assert remove_budget_limit("newcategory", user_id=user_id) is False
 
 
 def test_get_expenses_by_category_filters_dates(temp_db):
@@ -277,7 +277,7 @@ def test_voice_remove_budget_via_command(temp_db, mock_parse):
     mock_parse({"action": "remove_budget", "category": "entertainment"})
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
-    set_budget_limit(user_id, "entertainment", 3000)
+    set_budget_limit("entertainment", 3000, user_id=user_id)
     client = app.test_client()
     response = client.post(
         "/api/voice_command",
@@ -298,7 +298,7 @@ def test_voice_show_budget_with_remaining(temp_db, mock_parse):
     user_id = _test_user_id(temp_db)
     headers = _auth_headers(user_id)
     today = datetime.now().strftime(DATE_FORMAT)
-    set_budget_limit(user_id, "food", 1000)
+    set_budget_limit("food", 1000, user_id=user_id)
     _add_expense(200, "food", today, user_id=user_id)
 
     client = app.test_client()
@@ -477,21 +477,14 @@ def test_refresh_token_flow(temp_db):
     assert "access_token" in new_data
 
 
-def test_repeat_command_is_per_user(temp_db, auth_headers, mock_parse):
-    """Ensure repeat uses per-user last command, not a shared global."""
-    from app import _last_commands
-    _last_commands.clear()
-    
+def test_repeat_command_is_stateless(temp_db, auth_headers, mock_parse):
+    """Ensure repeat asks the user to re-send the command."""
     mock_parse({"action": "repeat"})
-
     client = app.test_client()
-
-    # Simulate user_id being set (testing mode bypasses JWT but user_id stays None)
-    # Test that repeat returns the right message when no prior command exists
     res = client.post("/api/voice_command", json={"command": "repeat"}, headers=auth_headers)
     assert res.status_code == 200
     payload = res.get_json()
-    assert "no previous" in payload["reply"].lower()
+    assert "Please re-send the command you want to repeat." in payload["reply"]
 
 
 def test_api_summary_includes_monthly_total(temp_db):

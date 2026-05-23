@@ -4,6 +4,8 @@ __pycache__/
 
 # Environment Variables
 .env
+.env.*
+!.env.example
 
 # Database
 *.db
@@ -34,7 +36,9 @@ frontend/node_modules/
 
 # Pytest, ruff, and coverage
 .pytest_cache/
+.pytest_tmp/
 .ruff_cache/
+.codex_tmp/
 .coverage
 coverage.xml
 htmlcov/
@@ -42,11 +46,6 @@ htmlcov/
 # Editor / OS files
 .DS_Store
 Thumbs.db
-
-# Environment files
-.env
-.env.*
-!.env.example
 
 # Python packaging / caches
 .mypy_cache/

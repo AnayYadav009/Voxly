@@ -6,16 +6,8 @@ import React, {
   useState,
 } from 'react';
 import {
-  Mic,
-  ChevronDown,
-  ChevronUp,
-  TrendingUp,
-  Calendar,
-  Wallet,
-  PieChart,
-  BarChart3,
-  Plus,
   RefreshCw,
+  ChevronDown,
 } from 'lucide-react';
 
 import {
@@ -35,36 +27,18 @@ import {
 } from './api';
 import ConfirmDialog from './components/ConfirmDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import UserHeader from './components/UserHeader';
+import VoiceButton from './components/VoiceButton';
+import SummaryDropdowns from './components/SummaryDropdowns';
+import CategoryPieChart from './components/CategoryPieChart';
+import DailyBarChart from './components/DailyBarChart';
+import MonthlyBarChart from './components/MonthlyBarChart';
+import ExpenseTable from './components/ExpenseTable';
+import AddExpenseForm from './components/AddExpenseForm';
+import CategorySummary from './components/CategorySummary';
+import { formatINR, toLocalISO, titleCase } from './utils';
 
 const RECENT_LIMIT = 12;
-const BUDGET_GUESSES = { food: 5000, transport: 3000, utilities: 2000, shopping: 2000, entertainment: 1000 };
-
-
-const formatINR = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
-  }
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value));
-};
-
-const toLocalISO = (date) => {
-  const off = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - off * 60 * 1000);
-  return local.toISOString().slice(0, 10);
-};
-
-const titleCase = (value) => {
-  if (!value) {
-    return '';
-  }
-  const s = value.toString().replace(/_/g, ' ');
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-};
 
 // TODO: replace with structured fields from /api/summary once backend is updated
 const parseCurrencyValue = (line) => {
@@ -328,6 +302,7 @@ const VoiceFinanceDashboard = ({
   const [insightLoading, setInsightLoading] = useState(false);
   const recognitionRef = useRef(null);
   const toastTimerRef = useRef(null);
+  const lastCommandRef = useRef(null);
   const displayName = user?.display_name || user?.displayName || user?.email || 'You';
   const userEmail = user?.email || '';
 
@@ -500,6 +475,24 @@ const VoiceFinanceDashboard = ({
         setToast({ type: 'error', message: 'No response from the assistant.' });
         return true;
       }
+      
+      if (data.action === "repeat") {
+        if (lastCommandRef.current) {
+          try {
+            const response = await apiSendVoiceCommand(lastCommandRef.current);
+            await handleVoiceResponse(response);
+          } catch (err) {
+            const message = err?.message || 'Voice command failed.';
+            setVoiceStatus(message);
+            setToast({ type: 'error', message });
+          }
+        } else {
+          const msg = data.reply || data.message || 'No previous command to repeat.';
+          setVoiceStatus(msg);
+          setToast({ type: 'info', message: msg });
+        }
+        return true;
+      }
 
       const replyMessage = data.reply || data.message || 'Command processed.';
       const isError = data.error || data.success === false;
@@ -621,6 +614,9 @@ const VoiceFinanceDashboard = ({
     recognition.onresult = async (event) => {
       if (cancelled) return;
       const transcript = event.results[0][0].transcript;
+      if (transcript.toLowerCase().trim() !== "repeat") {
+        lastCommandRef.current = transcript;
+      }
       setVoiceStatus(`Heard: "${transcript}"`);
       setVoiceProcessing(true);
       try {
@@ -849,56 +845,15 @@ const VoiceFinanceDashboard = ({
   return (
     <div className="app-shell px-4 py-6 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-8">
-        {/* Header */}
-        <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="text-center md:text-left">
-            <h1 className="text-3xl font-bold text-blue-900 md:text-4xl">Voice Finance Tracker</h1>
-            <p className="mt-2 text-blue-700">Track your expenses with voice commands or manual entry</p>
-          </div>
-          <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center md:justify-end">
-            <div className="flex items-center gap-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-blue-900 shadow-sm">
-              <div className="text-left">
-                <p className="text-sm font-semibold">{displayName}</p>
-                {userEmail && <p className="text-xs text-blue-600">{userEmail}</p>}
-              </div>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-800 transition hover:bg-blue-100"
-              >
-                Logout
-              </button>
-            </div>
-            <div className="rounded-2xl border border-blue-100 bg-white/80 px-4 py-3 text-blue-900 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">Voice command logging</p>
-              <div className="mt-2 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handlePreferenceToggle}
-                  disabled={preferenceSaving}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
-                    loggingEnabled ? 'bg-blue-600 border-blue-600' : 'bg-gray-300 border-gray-300'
-                  } ${preferenceSaving ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
-                >
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
-                      loggingEnabled ? 'translate-x-5' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-                <div>
-                  <p className="text-sm font-semibold">
-                    {loggingEnabled ? 'Enabled' : 'Disabled'}
-                    {preferenceSaving && <span className="ml-2 text-xs font-normal text-blue-500">Saving...</span>}
-                  </p>
-                  <p className="text-xs text-blue-600">
-                    Store transcripts to debug misheard commands. Nothing is logged unless you opt in.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        
+        <UserHeader
+          displayName={displayName}
+          userEmail={userEmail}
+          onLogout={onLogout}
+          loggingEnabled={loggingEnabled}
+          preferenceSaving={preferenceSaving}
+          handlePreferenceToggle={handlePreferenceToggle}
+        />
 
         {pendingSyncCount > 0 && (
           <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl flex items-center justify-between">
@@ -980,200 +935,30 @@ const VoiceFinanceDashboard = ({
           </div>
         )}
 
-        {/* Top Section: Microphone and Dropdowns */}
+        
         <div className="grid gap-6 lg:grid-cols-12">
-          {/* Microphone Section */}
           <div className="col-span-12 lg:col-span-5">
-            <div className="app-card border-2 border-blue-200 p-6 sm:p-8 h-full flex flex-col items-center justify-center">
-              <button
-                onClick={toggleRecording}
-                disabled={voiceProcessing || Boolean(voiceConfirm)}
-                className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-300 ${
-                  voiceProcessing || voiceConfirm
-                    ? 'bg-blue-300 cursor-not-allowed'
-                    : isRecording
-                    ? 'bg-red-500 hover:bg-red-600 shadow-xl shadow-red-300 animate-pulse'
-                    : 'bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-300'
-                }`}
-                aria-pressed={isRecording}
-                aria-label={isRecording ? 'Stop listening' : 'Start listening'}
-              >
-                <Mic className="w-16 h-16 text-white" />
-              </button>
-              <p className="mt-6 text-base font-semibold text-blue-900 sm:text-lg">
-                {voiceProcessing
-                  ? 'Processing...'
-                  : isRecording
-                  ? 'Listening...'
-                  : 'Click to Speak'}
-              </p>
-              <p className="text-sm text-blue-600 mt-2 text-center min-h-[1.5rem]">
-                {voiceStatus || 'Say commands like "Add 500 to food"'}
-              </p>
-            </div>
+            <VoiceButton
+              toggleRecording={toggleRecording}
+              voiceProcessing={voiceProcessing}
+              voiceConfirm={voiceConfirm}
+              isRecording={isRecording}
+              voiceStatus={voiceStatus}
+            />
           </div>
-
-          {/* Dropdown Summaries */}
-          <div className="col-span-12 space-y-4 lg:col-span-7">
-            {/* Daily Total */}
-            <div className="app-card border-2 border-blue-200 overflow-hidden">
-              <button
-                onClick={() => toggleSection('daily')}
-                className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Wallet className="w-5 h-5 text-blue-600" />
-                  <span className="font-semibold text-blue-900">Today's Total</span>
-                  <span className="text-xl font-bold text-blue-700">{formatINR(todayTotal)}</span>
-                </div>
-                {expandedSection === 'daily' ? (
-                  <ChevronUp className="w-5 h-5 text-blue-600" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-blue-600" />
-                )}
-              </button>
-              {expandedSection === 'daily' && (
-                <div className="px-6 py-4 bg-blue-50 border-t border-blue-200">
-                  <p className="text-blue-800">
-                    Latest total for today. Keep logging expenses to stay on top of your spending.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Weekly Total */}
-            <div className="app-card border-2 border-blue-200 overflow-hidden">
-              <button
-                onClick={() => toggleSection('weeklyTotal')}
-                className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Calendar className="w-5 h-5 text-blue-600" />
-                  <span className="font-semibold text-blue-900">Weekly Total</span>
-                  <span className="text-xl font-bold text-blue-700">
-                    {weeklyTotal !== null && weeklyTotal !== undefined ? formatINR(weeklyTotal) : '—'}
-                  </span>
-                </div>
-                {expandedSection === 'weeklyTotal' ? (
-                  <ChevronUp className="w-5 h-5 text-blue-600" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-blue-600" />
-                )}
-              </button>
-              {expandedSection === 'weeklyTotal' && (
-                <div className="px-6 py-4 bg-blue-50 border-t border-blue-200 space-y-2 text-blue-800">
-                  {weeklySummaryLines.length > 0 ? (
-                    weeklySummaryLines.map((line, index) => <p key={`weekly-line-${index}`}>{line}</p>)
-                  ) : (
-                    <p>No weekly data yet. Add a few expenses to see insights.</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Weekly Summary */}
-            <div className="app-card border-2 border-blue-200 overflow-hidden">
-              <button
-                onClick={() => toggleSection('weeklySummary')}
-                className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <TrendingUp className="w-5 h-5 text-blue-600" />
-                  <span className="font-semibold text-blue-900">Weekly Summary</span>
-                </div>
-                {expandedSection === 'weeklySummary' ? (
-                  <ChevronUp className="w-5 h-5 text-blue-600" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-blue-600" />
-                )}
-              </button>
-              {expandedSection === 'weeklySummary' && (
-                <div className="px-6 py-4 bg-blue-50 border-t border-blue-200">
-                  {weeklySummaryLines.length > 0 ? (
-                    <>
-                      <p className="text-blue-800 mb-3">
-                        Weekly spending: {weeklyTotal !== null && weeklyTotal !== undefined ? formatINR(weeklyTotal) : '—'} {' | '}
-                        Daily average: {dailyAverage !== null && dailyAverage !== undefined ? formatINR(dailyAverage) : '—'}
-                      </p>
-                      {weeklyTopCategories.length > 0 && (
-                        <>
-                          <p className="text-blue-800 font-semibold mb-2">Top categories:</p>
-                          <ul className="space-y-1">
-                            {weeklyTopCategories.map((cat, idx) => (
-                              <li key={`weekly-cat-${idx}`} className="text-blue-700">
-                                • {cat.name}: {cat.amount !== null && cat.amount !== undefined ? formatINR(cat.amount) : '—'}
-                              </li>
-                            ))}
-                          </ul>
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-blue-800">Weekly insights will appear after you add expenses.</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Monthly Summary */}
-            <div className="app-card border-2 border-blue-200 overflow-hidden">
-              <button
-                onClick={() => toggleSection('monthlySummary')}
-                className="w-full px-6 py-4 flex items-center justify-between hover:bg-blue-50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <BarChart3 className="w-5 h-5 text-blue-600" />
-                  <span className="font-semibold text-blue-900">Monthly Summary</span>
-                  <span className="text-xl font-bold text-blue-700">
-                    {monthlyTotal !== null && monthlyTotal !== undefined ? formatINR(monthlyTotal) : '—'}
-                  </span>
-                </div>
-                {expandedSection === 'monthlySummary' ? (
-                  <ChevronUp className="w-5 h-5 text-blue-600" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-blue-600" />
-                )}
-              </button>
-              {expandedSection === 'monthlySummary' && (
-                <div className="px-6 py-4 bg-blue-50 border-t border-blue-200">
-                  {monthlySummaryLines.length > 0 ? (
-                    <>
-                      {monthlySummaryLines.map((line, index) => (
-                        <p key={`monthly-line-${index}`} className="text-blue-800 mb-2">
-                          {line}
-                        </p>
-                      ))}
-                      {monthlyCategories.length > 0 && (
-                        <>
-                          <p className="text-blue-800 font-semibold mb-2">Leading categories:</p>
-                          <ul className="space-y-1">
-                            {monthlyCategories.map((cat, index) => (
-                              <li key={`monthly-cat-${index}`} className="text-blue-700">
-                                • {cat.name}: {cat.amount !== null && cat.amount !== undefined ? formatINR(cat.amount) : '—'}
-                              </li>
-                            ))}
-                          </ul>
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-blue-800">Monthly breakdown will refresh once expenses are logged.</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Forecast KPI Card */}
-            {forecast && forecast.projected_total !== null && (
-              <div className="app-card border-2 border-blue-200 overflow-hidden">
-                <div className="px-6 py-4 flex items-center gap-3">
-                  <TrendingUp className="w-5 h-5 text-blue-600" />
-                  <span className="font-semibold text-blue-900">Month-end Forecast</span>
-                  <span className="text-xl font-bold text-blue-700">{formatINR(forecast.projected_total)}</span>
-                </div>
-              </div>
-            )}
-          </div>
+          <SummaryDropdowns
+            toggleSection={toggleSection}
+            expandedSection={expandedSection}
+            todayTotal={todayTotal}
+            weeklyTotal={weeklyTotal}
+            dailyAverage={dailyAverage}
+            weeklyTopCategories={weeklyTopCategories}
+            weeklySummaryLines={weeklySummaryLines}
+            monthlyTotal={monthlyTotal}
+            monthlySummaryLines={monthlySummaryLines}
+            monthlyCategories={monthlyCategories}
+            forecast={forecast}
+          />
         </div>
 
         {/* Recurring Expenses Card */}
@@ -1213,427 +998,40 @@ const VoiceFinanceDashboard = ({
           </div>
         )}
 
-        {/* Charts Section */}
+        
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {/* Pie Chart - Category Distribution */}
-          <div className="app-card border-2 border-blue-200 p-6">
-            <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
-              <PieChart className="w-5 h-5" />
-              Category Distribution
-            </h3>
-            {categorySpending.length > 0 ? (
-              <>
-                <div className="relative w-48 h-48 mx-auto mb-4">
-                  <svg viewBox="0 0 100 100" className="transform -rotate-90">
-                    {(() => {
-                      let currentAngle = 0;
-                      const colors = ['#1e40af', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe'];
-                      const total = categorySpending.reduce((sum, c) => sum + c.amount, 0) || 1;
-
-                      return categorySpending.map((cat, idx) => {
-                        const percentage = total ? (cat.amount / total) * 100 : 0;
-                        const angle = (percentage / 100) * 360;
-                        const largeArc = angle > 180 ? 1 : 0;
-
-                        const startX = 50 + 40 * Math.cos((currentAngle * Math.PI) / 180);
-                        const startY = 50 + 40 * Math.sin((currentAngle * Math.PI) / 180);
-                        const endX = 50 + 40 * Math.cos(((currentAngle + angle) * Math.PI) / 180);
-                        const endY = 50 + 40 * Math.sin(((currentAngle + angle) * Math.PI) / 180);
-
-                        const path = `M 50 50 L ${startX} ${startY} A 40 40 0 ${largeArc} 1 ${endX} ${endY} Z`;
-                        currentAngle += angle;
-
-                        return (
-                          <path
-                            key={cat.category}
-                            d={path}
-                            fill={colors[idx % colors.length]}
-                            stroke="white"
-                            strokeWidth="0.5"
-                          />
-                        );
-                      });
-                    })()}
-                  </svg>
-                </div>
-                <div className="space-y-2">
-                  {categorySpending.map((cat, idx) => {
-                    const colors = ['bg-blue-900', 'bg-blue-700', 'bg-blue-500', 'bg-blue-400', 'bg-blue-300'];
-                    return (
-                      <div key={`category-spending-${cat.category}-${idx}`} className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded ${colors[idx % colors.length]}`}></div>
-                          <span className="text-blue-800">{cat.category}</span>
-                        </div>
-                        <span className="font-semibold text-blue-900">{formatINR(cat.amount)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <p className="text-blue-700">Add expenses to see the category distribution chart.</p>
-            )}
-          </div>
-
-          {/* Bar Chart - Daily Spending */}
-          <div className="app-card border-2 border-blue-200 p-6">
-            <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5" />
-              Last 7 Days Spending
-            </h3>
-            <div className="h-64 flex items-end justify-around gap-1 px-4">
-              {dailySpending.map((day, idx) => {
-                const height = maxDaily ? (day.amount / maxDaily) * 100 : 0;
-                const avgDailyBudget = Object.values(BUDGET_GUESSES).reduce((a, b) => a + b, 0) / 30;
-                const isOverBudget = day.amount > avgDailyBudget;
-                return (
-                  <div key={`daily-${idx}`} className="flex flex-col items-center">
-                    <div className="flex flex-col items-center justify-end h-52">
-                      <div className="relative group">
-                        <div
-                          className={`w-10 rounded-t transition-all hover:opacity-80 ${
-                            isOverBudget ? 'bg-red-500' : 'bg-blue-600'
-                          }`}
-                          style={{ height: `${(height / 100) * 208}px` }}
-                        ></div>
-                        <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-blue-900 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
-                          {formatINR(day.amount)}
-                          {isOverBudget && <div className="text-red-300 text-xs">Over budget!</div>}
-                        </div>
-                      </div>
-                    </div>
-                    <span className="text-xs text-blue-700 mt-2 font-medium">{day.day}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-4 pt-4 border-t border-blue-200">
-              <div className="flex items-center gap-3 text-xs">
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-blue-600 rounded"></div>
-                  <span className="text-blue-700">Normal</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-red-500 rounded"></div>
-                  <span className="text-blue-700">Over Budget</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Bar Chart - Monthly Totals */}
-          <div className="app-card border-2 border-blue-200 p-6">
-            <h3 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5" />
-              Monthly Totals (6 Months)
-            </h3>
-            {monthlyTrend.length > 0 ? (
-              <>
-                <div className="h-64 flex items-end justify-around gap-1 px-4 relative">
-                  {monthlyTrend.map((month, idx) => {
-                    const height = maxMonthly ? (month.amount / maxMonthly) * 100 : 0;
-                    return (
-                      <div key={`monthly-${idx}`} className="flex flex-col items-center z-10">
-                        <div className="flex flex-col items-center justify-end h-52 relative">
-                          <div className="relative group">
-                            <div
-                              className="w-10 rounded-t transition-all hover:opacity-80 bg-blue-600"
-                              style={{ height: `${(height / 100) * 208}px` }}
-                            ></div>
-                            <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-blue-900 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                              {formatINR(month.amount)}
-                            </div>
-                          </div>
-                        </div>
-                        <span className="text-xs text-blue-700 mt-2 font-medium text-center leading-tight">{month.label}</span>
-                      </div>
-                    );
-                  })}
-                  {forecast && forecast.projected_total !== null && (
-                    <div
-                      className="absolute left-4 right-4 border-t-2 border-dashed border-indigo-400 pointer-events-none"
-                      style={{ bottom: `calc(1.5rem + ${maxMonthly ? (forecast.projected_total / maxMonthly) * 208 : 0}px)` }}
-                    >
-                      <span className="absolute -top-5 right-0 text-xs font-semibold text-indigo-600 bg-white/80 px-1 rounded">
-                        Forecast: {formatINR(forecast.projected_total)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <div className="mt-4 pt-4 border-t border-blue-200">
-                  <div className="text-xs text-blue-700 text-center">
-                    Recent monthly spending totals
-                  </div>
-                  {forecast && forecast.projected_total !== null && (() => {
-                    return (
-                      <div className="mt-2 pt-2 border-t border-blue-200 flex items-center gap-2 text-xs text-blue-700 justify-center">
-                        <div className="flex items-center gap-1">
-                          <div className="w-6 border-t-2 border-dashed border-blue-400" />
-                          <span>Projected: {formatINR(forecast.projected_total)}</span>
-                        </div>
-                        <span className="text-blue-400">·</span>
-                        <span className="text-blue-500">{forecast.confidence}</span>
-                      </div>
-                    );
-                  })()}
-                </div>
-              </>
-            ) : (
-              <p className="text-blue-700">Monthly totals will appear once you log expenses.</p>
-            )}
-          </div>
+          <CategoryPieChart categorySpending={categorySpending} />
+          <DailyBarChart dailySpending={dailySpending} maxDaily={maxDaily} userBudgets={userBudgets} />
+          <MonthlyBarChart monthlyTrend={monthlyTrend} maxMonthly={maxMonthly} forecast={forecast} />
         </div>
 
-        {/* Recent Expenses */}
-        <div className="app-card p-6 border-2 border-blue-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-blue-900">Recent Expenses</h3>
-            <div className="flex items-center gap-3">
-              {loading && <span className="text-sm text-blue-600">Refreshing...</span>}
-              <a
-                href="/api/export?format=csv"
-                className="text-sm text-blue-600 hover:underline font-medium"
-                download
-              >
-                Export CSV
-              </a>
-            </div>
-          </div>
-          {/* Filter row */}
-          <div className="flex flex-wrap gap-3 mb-4 items-end">
-            <div>
-              <label className="block text-xs font-semibold text-blue-800 mb-1">From</label>
-              <input
-                type="date"
-                value={expenseFilter.from}
-                onChange={(e) => {
-                  const next = { ...expenseFilter, from: e.target.value };
-                  setExpenseFilter(next);
-                  getRecent(RECENT_LIMIT, next).then((res) => {
-                    const items = Array.isArray(res) ? res : [];
-                    setRecentExpenses(mapRecentExpenses(items));
-                  }).catch(() => {});
-                }}
-                className="px-3 py-2 border border-blue-200 rounded-lg text-sm text-blue-900 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-blue-800 mb-1">To</label>
-              <input
-                type="date"
-                value={expenseFilter.to}
-                onChange={(e) => {
-                  const next = { ...expenseFilter, to: e.target.value };
-                  setExpenseFilter(next);
-                  getRecent(RECENT_LIMIT, next).then((res) => {
-                    const items = Array.isArray(res) ? res : [];
-                    setRecentExpenses(mapRecentExpenses(items));
-                  }).catch(() => {});
-                }}
-                className="px-3 py-2 border border-blue-200 rounded-lg text-sm text-blue-900 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-blue-800 mb-1">Category</label>
-              <select
-                value={expenseFilter.category}
-                onChange={(e) => {
-                  const next = { ...expenseFilter, category: e.target.value };
-                  setExpenseFilter(next);
-                  getRecent(RECENT_LIMIT, next).then((res) => {
-                    const items = Array.isArray(res) ? res : [];
-                    setRecentExpenses(mapRecentExpenses(items));
-                  }).catch(() => {});
-                }}
-                className="px-3 py-2 border border-blue-200 rounded-lg text-sm text-blue-900 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">All</option>
-                {Object.keys(BUDGET_GUESSES).map((cat) => (
-                  <option key={cat} value={cat}>{titleCase(cat)}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="overflow-x-auto hidden md:block">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b-2 border-blue-200">
-                  <th className="text-left py-3 px-4 text-blue-900 font-semibold">Date</th>
-                  <th className="text-left py-3 px-4 text-blue-900 font-semibold">Time</th>
-                  <th className="text-left py-3 px-4 text-blue-900 font-semibold">Amount</th>
-                  <th className="text-left py-3 px-4 text-blue-900 font-semibold">Category</th>
-                  <th className="text-left py-3 px-4 text-blue-900 font-semibold">Description</th>
-                  <th className="text-left py-3 px-4 text-blue-900 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentExpenses.length > 0 ? (
-                  recentExpenses.map((expense) => (
-                    editingId === expense.id ? (
-                      <tr key={expense.id} className="border-b border-blue-100 bg-blue-50">
-                        <td className="py-3 px-4 text-blue-800">{expense.date || '—'}</td>
-                        <td className="py-3 px-4 text-blue-800">{expense.time || '—'}</td>
-                        <td className="py-2 px-4">
-                          <input
-                            type="number"
-                            value={editForm.amount}
-                            onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
-                            className="w-24 px-2 py-1 border border-blue-300 rounded text-sm text-blue-900"
-                          />
-                        </td>
-                        <td className="py-2 px-4">
-                          <input
-                            type="text"
-                            value={editForm.category}
-                            onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-                            className="w-28 px-2 py-1 border border-blue-300 rounded text-sm text-blue-900"
-                          />
-                        </td>
-                        <td className="py-2 px-4">
-                          <input
-                            type="text"
-                            value={editForm.description}
-                            onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                            className="w-full px-2 py-1 border border-blue-300 rounded text-sm text-blue-900"
-                          />
-                        </td>
-                        <td className="py-2 px-4">
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await apiUpdateExpense(expense.id, editForm);
-                                  setEditingId(null);
-                                  setToast({ type: 'success', message: 'Expense updated.' });
-                                  await loadData();
-                                } catch (err) {
-                                  setToast({ type: 'error', message: err.message || 'Update failed.' });
-                                }
-                              }}
-                              className="px-3 py-1 bg-green-600 text-white text-xs rounded font-semibold hover:bg-green-700"
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                              className="px-3 py-1 bg-gray-300 text-gray-800 text-xs rounded font-semibold hover:bg-gray-400"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={expense.id} className="border-b border-blue-100 hover:bg-blue-50 transition-colors">
-                        <td className="py-3 px-4 text-blue-800">{expense.date || '—'}</td>
-                        <td className="py-3 px-4 text-blue-800">{expense.time || '—'}</td>
-                        <td className="py-3 px-4 text-blue-900 font-semibold">{formatINR(expense.amount)}</td>
-                        <td className="py-3 px-4">
-                          <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-                            {titleCase(expense.category)}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-blue-700">{expense.description || '—'}</td>
-                        <td className="py-3 px-4">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingId(expense.id);
-                              setEditForm({
-                                amount: String(expense.amount),
-                                category: expense.category,
-                                description: expense.description || '',
-                              });
-                            }}
-                            className="px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded font-semibold hover:bg-blue-200"
-                          >
-                            Edit
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="6" className="py-4 px-4 text-center text-blue-700">
-                      No expenses logged yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="space-y-4 md:hidden">
-            {recentExpenses.length > 0 ? (
-              recentExpenses.map((expense) => (
-                <div key={`expense-card-${expense.id}`} className="border border-blue-100 rounded-xl p-4 bg-blue-50">
-                  <div className="flex items-center justify-between text-sm text-blue-800">
-                    <span>{expense.date || '—'}</span>
-                    <span>{expense.time || '—'}</span>
-                  </div>
-                  <p className="mt-2 text-lg font-semibold text-blue-900">{formatINR(expense.amount)}</p>
-                  <p className="text-sm text-blue-700">{expense.description || 'No description'}</p>
-                  <span className="inline-flex mt-3 px-3 py-1 bg-white text-blue-800 rounded-full text-xs font-semibold">
-                    {titleCase(expense.category)}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p className="text-blue-700">No expenses logged yet.</p>
-            )}
-          </div>
-        </div>
+        
+        <ExpenseTable
+          recentExpenses={recentExpenses}
+          loading={loading}
+          expenseFilter={expenseFilter}
+          setExpenseFilter={setExpenseFilter}
+          getRecent={getRecent}
+          setRecentExpenses={setRecentExpenses}
+          mapRecentExpenses={mapRecentExpenses}
+          editingId={editingId}
+          setEditingId={setEditingId}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          apiUpdateExpense={apiUpdateExpense}
+          setToast={setToast}
+          loadData={loadData}
+          categories={Object.keys(userBudgets).length > 0 ? Object.keys(userBudgets) : ['food', 'transport', 'utilities']}
+        />
 
-        {/* Add Expense Manually */}
-        <div className="app-card p-6 border-2 border-blue-200">
-          <h3 className="text-xl font-bold text-blue-900 mb-4 flex items-center gap-2">
-            <Plus className="w-6 h-6" />
-            Add Expense Manually
-          </h3>
-          <div className="flex flex-col gap-4 md:flex-row md:items-end">
-            <div className="flex-1 min-w-[200px] w-full">
-              <label className="block text-sm font-semibold text-blue-900 mb-2">Amount (₹)</label>
-              <input
-                type="number"
-                value={newExpense.amount}
-                onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
-                placeholder="Enter amount"
-                className="w-full px-4 py-3 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-500 text-blue-900"
-              />
-            </div>
-            <div className="flex-1 min-w-[200px] w-full">
-              <label className="block text-sm font-semibold text-blue-900 mb-2">Category</label>
-              <select
-                value={newExpense.category}
-                onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
-                className="w-full px-4 py-3 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-500 text-blue-900"
-              >
-                <option value="food">Food</option>
-                <option value="transport">Transport</option>
-                <option value="entertainment">Entertainment</option>
-                <option value="shopping">Shopping</option>
-                <option value="utilities">Utilities</option>
-                <option value="health">Health</option>
-                <option value="personal">Personal</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <button
-              onClick={handleAddExpense}
-              disabled={submitting}
-              className={`px-8 py-3 rounded-lg font-semibold transition-colors shadow-md ${
-                submitting
-                  ? 'bg-blue-300 text-white cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
-            >
-              {submitting ? 'Adding...' : 'Add Expense'}
-            </button>
-          </div>
-        </div>
+        
+        <AddExpenseForm
+          newExpense={newExpense}
+          setNewExpense={setNewExpense}
+          handleAddExpense={handleAddExpense}
+          submitting={submitting}
+          categories={Object.keys(userBudgets).length > 0 ? Object.keys(userBudgets) : ['food', 'transport', 'utilities']}
+        />
 
         {/* Set Budget Widget */}
         <div className="app-card p-6 border-2 border-purple-200 mt-6 mb-6 bg-purple-50">
@@ -1681,58 +1079,8 @@ const VoiceFinanceDashboard = ({
           </div>
         </div>
 
-        {/* Category Summary */}
-        <div className="app-card p-6 border-2 border-blue-200">
-          <h3 className="text-xl font-bold text-blue-900 mb-6">Category Summary</h3>
-          {categoryData.length > 0 ? (
-            <div className="space-y-3">
-              {categoryData.map((cat, idx) => (
-                <div key={`category-data-${idx}`} className="border-b border-blue-100 pb-3 last:border-b-0">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-blue-900">{cat.category}</span>
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-blue-700">
-                        {formatINR(cat.total)} / {formatINR(cat.budget)}
-                      </span>
-                      <span
-                        className={`text-sm font-semibold ${
-                          cat.percentage > 100
-                            ? 'text-red-600'
-                            : cat.percentage > 80
-                            ? 'text-yellow-600'
-                            : 'text-green-600'
-                        }`}
-                      >
-                        {Math.round(cat.percentage)}%
-                      </span>
-                    </div>
-                  </div>
-                  <div className="relative h-2 bg-blue-100 rounded-full overflow-hidden">
-                    <div
-                      className={`absolute left-0 top-0 h-full rounded-full transition-all ${
-                        cat.percentage > 100
-                          ? 'bg-red-500'
-                          : cat.percentage > 80
-                          ? 'bg-yellow-500'
-                          : 'bg-green-500'
-                      }`}
-                      style={{ width: `${Math.min(cat.percentage, 100)}%` }}
-                    ></div>
-                    {cat.percentage > 80 && (
-                      <div className="absolute right-2 top-0 h-full flex items-center">
-                        <span className="text-xs text-white font-bold">
-                          {cat.percentage > 100 ? '⚠️ Over Budget' : '⚠️ Warning'}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-blue-700">Category insights will appear once you log some expenses.</p>
-          )}
-        </div>
+        
+        <CategorySummary categoryData={categoryData} />
       </div>
       <ConfirmDialog
         open={Boolean(voiceConfirm)}
