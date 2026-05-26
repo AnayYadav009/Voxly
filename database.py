@@ -7,6 +7,9 @@ from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
+import threading
+
+_local = threading.local()
 
 from config import DB_NAME, DATE_FORMAT
 from logger import log_error, log_info
@@ -117,13 +120,8 @@ except ImportError:
     _LIBSQL_AVAILABLE = False
 
 
-def create_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
-    """Return a database connection.
-
-    In production (TURSO_URL + TURSO_TOKEN set) returns an embedded-replica
-    libsql connection that syncs with Turso cloud.  Falls back to local
-    SQLite for development and test runs.
-    """
+def _create_raw_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
+    """Create a raw database connection."""
     import os as _os
     turso_url = _os.environ.get("TURSO_URL", "").strip()
     turso_token = _os.environ.get("TURSO_TOKEN", "").strip()
@@ -146,6 +144,13 @@ def create_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     return conn
 
+def create_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
+    """Return a thread-local database connection."""
+    key = f"conn_{db_name}"
+    if not hasattr(_local, key):
+        setattr(_local, key, _create_raw_connection(db_name))
+    return getattr(_local, key)
+
 @contextmanager
 def get_db(db_name: str = DB_NAME):
     """Context manager for DB connections."""
@@ -155,8 +160,6 @@ def get_db(db_name: str = DB_NAME):
     except Exception:
         conn.rollback()
         raise
-    finally:
-        conn.close()
 
 def create_table() -> None:
     """Create table."""

@@ -192,8 +192,12 @@ def generate_all_charts(user_id: Optional[str] = None) -> Dict[str, Optional[str
         Dict[str, Optional[str]]: Dictionary mapping chart names to their file paths.
 
     """
-    charts: Dict[str, Optional[str]] = {
-        "category": plot_category_pie(get_category_breakdown(user_id=user_id), "category_pie.png"),
-        "daily": plot_daily_bar(get_recent_daily_totals(7, user_id=user_id), "daily_bar.png"),
-    }
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future_cat = executor.submit(plot_category_pie, get_category_breakdown(user_id=user_id), "category_pie.png")
+        future_daily = executor.submit(plot_daily_bar, get_recent_daily_totals(7, user_id=user_id), "daily_bar.png")
+        charts: Dict[str, Optional[str]] = {
+            "category": future_cat.result(),
+            "daily": future_daily.result(),
+        }
     return charts

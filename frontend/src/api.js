@@ -1,7 +1,6 @@
 const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/$/, '');
 const DEFAULT_TIMEOUT = 60000;
 
-let accessToken = null;
 let refreshPromise = null;
 let authFailureHandler = null;
 
@@ -21,18 +20,13 @@ export const onAuthFailure = (callback) => {
 };
 
 const clearAuthState = ({ notify = true } = {}) => {
-  accessToken = null;
   if (notify) {
     notifyAuthFailure();
   }
 };
 
-export const getStoredTokens = () => ({ accessToken, refreshToken: null });
-
-export const persistAuthTokens = (payload = {}) => {
-  accessToken = payload.access_token || payload.accessToken || null;
-};
-
+export const getStoredTokens = () => ({});
+export const persistAuthTokens = () => {};
 export const clearStoredAuthTokens = (options = {}) => clearAuthState(options);
 
 const attemptRefresh = async () => {
@@ -42,16 +36,13 @@ const attemptRefresh = async () => {
 
   refreshPromise = fetch(`${API_BASE}/api/auth/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({}),
+    credentials: 'same-origin',
   })
     .then(async (response) => {
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(data?.error || 'Unable to refresh session.');
       }
-      persistAuthTokens(data);
       return true;
     })
     .catch(() => {
@@ -73,12 +64,8 @@ async function apiFetch(path, options = {}) {
   const timer = setTimeout(() => controller.abort(), timeout);
   const headers = new Headers(customHeaders || {});
 
-  if (!skipAuth && accessToken && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${accessToken}`);
-  }
-
   const finalOptions = {
-    credentials: fetchOptions.credentials || 'include',
+    credentials: fetchOptions.credentials || 'same-origin',
     ...fetchOptions,
     headers,
     signal: controller.signal,

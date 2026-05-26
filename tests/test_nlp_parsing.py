@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import voice_module
+import voice_nlp
 
 
 def _make_mock_client(return_dict: dict):
@@ -25,13 +25,13 @@ def _make_mock_client(return_dict: dict):
 @pytest.fixture(autouse=True)
 def _patch_groq(monkeypatch):
     """Ensure _groq_client is reset before each test (tests supply their own)."""
-    monkeypatch.setattr(voice_module, "_groq_client", None)
+    monkeypatch.setattr(voice_nlp, "_groq_client", None)
 
 
 def _parse_with(monkeypatch, text: str, groq_returns: dict):
     """Helper: patch the client to return *groq_returns*, then call parse_expense."""
-    monkeypatch.setattr(voice_module, "_get_client", lambda: _make_mock_client(groq_returns))
-    return voice_module.parse_expense(text)
+    monkeypatch.setattr(voice_nlp, "_get_client", lambda: _make_mock_client(groq_returns))
+    return voice_nlp.parse_expense(text)
 
 
 def test_add_simple(monkeypatch):
@@ -148,7 +148,7 @@ def test_help_command(monkeypatch):
 
 def test_none_input(monkeypatch):
     # Empty input short-circuits before calling Groq
-    res = voice_module.parse_expense("")
+    res = voice_nlp.parse_expense("")
     assert res["action"] == "none"
 
 

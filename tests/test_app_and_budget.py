@@ -101,7 +101,8 @@ def auth_headers(temp_db):
 def mock_parse(monkeypatch):
     """Returns a factory: call mock_parse(returned_dict) to set the response."""
     def factory(return_value: dict):
-        monkeypatch.setattr(app_module, "parse_expense", lambda text: return_value)
+        import routes.voice as voice_routes
+        monkeypatch.setattr(voice_routes, "parse_expense", lambda text: return_value)
     return factory
 
 
@@ -366,8 +367,10 @@ class TestAuthEndpoints:
         })
         assert resp.status_code == 200
         data = resp.get_json()
-        assert "access_token" in data
-        assert "voxly_refresh" in resp.headers.get("Set-Cookie", "")
+        set_cookies = "\n".join(resp.headers.getlist("Set-Cookie"))
+        assert data["user"]["email"] == "newuser@example.com"
+        assert "access_token=" in set_cookies
+        assert "refresh_token=" in set_cookies
         
         resp2 = client.post("/api/auth/login", json={
             "email": "newuser@example.com",
@@ -375,8 +378,10 @@ class TestAuthEndpoints:
         })
         assert resp2.status_code == 200
         data2 = resp2.get_json()
-        assert "access_token" in data2
-        assert "voxly_refresh" in resp2.headers.get("Set-Cookie", "")
+        set_cookies2 = "\n".join(resp2.headers.getlist("Set-Cookie"))
+        assert data2["user"]["email"] == "newuser@example.com"
+        assert "access_token=" in set_cookies2
+        assert "refresh_token=" in set_cookies2
 
     def test_login_wrong_password_returns_401(self, temp_db):
         client = app.test_client()
@@ -406,7 +411,8 @@ class TestAuthEndpoints:
         resp2 = client.post("/api/auth/refresh", headers={"Cookie": cookie})
         assert resp2.status_code == 200
         data = resp2.get_json()
-        assert "access_token" in data
+        assert data["user"]["email"] == "refresh@example.com"
+        assert "access_token=" in resp2.headers.get("Set-Cookie", "")
 
 
 def test_register_and_login(temp_db):
@@ -420,8 +426,8 @@ def test_register_and_login(temp_db):
     })
     assert res.status_code == 200
     data = res.get_json()
-    assert "access_token" in data
     assert data["user"]["email"] == "new_test@example.com"
+    assert "access_token=" in res.headers.get("Set-Cookie", "")
 
     # Duplicate email
     res2 = client.post("/api/auth/register", json={
@@ -436,7 +442,8 @@ def test_register_and_login(temp_db):
         "password": "Secure1Password",
     })
     assert res3.status_code == 200
-    assert "access_token" in res3.get_json()
+    assert res3.get_json()["user"]["email"] == "new_test@example.com"
+    assert "access_token=" in res3.headers.get("Set-Cookie", "")
 
     # Login with wrong password
     res4 = client.post("/api/auth/login", json={
@@ -468,13 +475,12 @@ def test_refresh_token_flow(temp_db):
         "email": "refresh@example.com",
         "password": "Refresh1Test",
     })
-    tokens = reg.get_json()
-    refresh_token = tokens["refresh_token"]
 
-    res = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    res = client.post("/api/auth/refresh")
     assert res.status_code == 200
     new_data = res.get_json()
-    assert "access_token" in new_data
+    assert new_data["user"]["email"] == "refresh@example.com"
+    assert "access_token=" in res.headers.get("Set-Cookie", "")
 
 
 def test_repeat_command_is_stateless(temp_db, auth_headers, mock_parse):
@@ -484,7 +490,7 @@ def test_repeat_command_is_stateless(temp_db, auth_headers, mock_parse):
     res = client.post("/api/voice_command", json={"command": "repeat"}, headers=auth_headers)
     assert res.status_code == 200
     payload = res.get_json()
-    assert "Please re-send the command you want to repeat." in payload["reply"]
+    assert "say your command again" in payload["reply"].lower()
 
 
 def test_api_summary_includes_monthly_total(temp_db):
@@ -505,4 +511,3 @@ def test_category_totals_are_objects(temp_db):
     import json
     serialised = json.dumps(context["category_totals"])
     assert serialised is not None
-

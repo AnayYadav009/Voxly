@@ -29,15 +29,29 @@ _JWT_SECRET_DEFAULT = "dev-secret-change-me"
 # --- Turso (cloud SQLite) — set both in production, leave blank for local dev ---
 TURSO_URL   = os.environ.get("TURSO_URL", "")
 TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
-# --- CORS — comma-separated list of allowed frontend origins ---
-CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:3000")
+# --- CORS: comma-separated list of allowed frontend origins ---
+_ALLOWED_ORIGINS_RAW = (
+    os.environ.get("VOXLY_ALLOWED_ORIGINS")
+    or os.environ.get("CORS_ORIGINS")
+    or "http://localhost:3000"
+)
 JWT_SECRET = os.environ.get("VOXLY_JWT_SECRET", _JWT_SECRET_DEFAULT)
 JWT_ALGORITHM = os.environ.get("VOXLY_JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRES_MINUTES = int(os.environ.get("VOXLY_JWT_EXPIRES_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRES_DAYS = int(os.environ.get("VOXLY_JWT_REFRESH_DAYS", "7"))
 
-if JWT_SECRET == "dev-secret-change-me" and os.environ.get("FLASK_ENV") == "production":
-    raise RuntimeError("VOXLY_JWT_SECRET must be set to a strong secret in production.")
+if JWT_SECRET == "dev-secret-change-me":
+    raise RuntimeError(
+        "VOXLY_JWT_SECRET environment variable must be set to a strong "
+        "random secret before running in any environment. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in _ALLOWED_ORIGINS_RAW.split(",")
+    if origin.strip()
+]
 
 COMMAND_LOGGING_ENABLED = os.environ.get("VOXLY_COMMAND_LOGGING_ENABLED", "false").lower() in {"1", "true", "yes"}
 
@@ -55,5 +69,4 @@ def init_directories() -> None:
             "Set the VOXLY_JWT_SECRET environment variable before deploying.",
             stacklevel=2,
         )
-
 

@@ -9,8 +9,11 @@ __pycache__/
 
 # Database
 *.db
+*.db-journal
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 auth
 auth-wal
 auth-shm
@@ -27,6 +30,7 @@ static/charts/*.png
 
 # Frontend build artifacts
 frontend/build/
+frontend/coverage/
 
 # Frontend dependencies
 frontend/node_modules/
