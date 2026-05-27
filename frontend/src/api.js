@@ -113,6 +113,7 @@ async function apiFetch(path, options = {}) {
 }
 
 export const getSummary = () => apiFetch('/api/summary');
+export const getDashboard = () => apiFetch('/api/dashboard');
 export const getRecent = (limit = 10, { from, to, category } = {}) => {
   const params = new URLSearchParams({ limit });
   if (from) params.set('from', from);

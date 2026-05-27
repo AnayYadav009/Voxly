@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT,
     log_opt_in INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    last_logout_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -57,14 +58,18 @@ CREATE TABLE IF NOT EXISTS command_logs (
 CREATE INDEX IF NOT EXISTS idx_command_logs_user_created ON command_logs(user_id, created_at);
 
 CREATE TABLE IF NOT EXISTS user_budgets (
-    user_id TEXT NOT NULL,
-    category TEXT NOT NULL,
-    limit_amount REAL NOT NULL,
-    warn_ratio REAL NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY(user_id, category),
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       TEXT    NOT NULL,
+    category      TEXT    NOT NULL,
+    monthly_limit REAL    NOT NULL,
+    warn_at       REAL    NOT NULL DEFAULT 0.8,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, category),
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_user_budgets_user ON user_budgets(user_id);
 
 CREATE TABLE IF NOT EXISTS budgets (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,55 +106,37 @@ CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id, expires_at);
 def _current_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def _ensure_column(conn, table, column, definition):
-    cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
-    if not cur.fetchone():
-        return
-    cur = conn.execute(f"PRAGMA table_info({table})")
-    if column not in {row[1] for row in cur.fetchall()}:
+_TURSO_URL   = os.environ.get("TURSO_URL",   "").strip()
+_TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "").strip()
+_USE_TURSO   = bool(_TURSO_URL and _TURSO_TOKEN)
+
+
+def _row_factory(cursor, row):
+    """Dict row factory compatible with sqlite3 AND libsql_experimental."""
+    cols = [d[0] for d in cursor.description]
+    return dict(zip(cols, row))
+
+
+def create_connection(db_name: str = DB_NAME):
+    """
+    Returns a DBAPI-2 connection.
+    • Render / production  → Turso via libsql_experimental (TURSO_URL + TURSO_TOKEN set)
+    • Local dev            → local SQLite file fallback (no env vars)
+    """
+    if _USE_TURSO:
         try:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-            conn.commit()
-        except sqlite3.Error as exc:
-            log_error("Failed to ensure column %s on %s: %s", column, table, exc)
+            import libsql_experimental as libsql
+        except ImportError as exc:
+            raise RuntimeError(
+                "TURSO_URL/TURSO_TOKEN are set but 'libsql-experimental' is not "
+                "installed. Add it to requirements.txt."
+            ) from exc
+        conn = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
+    else:
+        conn = sqlite3.connect(db_name)
 
-try:
-    import libsql_experimental as _libsql  # type: ignore
-    _LIBSQL_AVAILABLE = True
-except ImportError:
-    _LIBSQL_AVAILABLE = False
-
-
-def _create_raw_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
-    """Create a raw database connection."""
-    import os as _os
-    turso_url = _os.environ.get("TURSO_URL", "").strip()
-    turso_token = _os.environ.get("TURSO_TOKEN", "").strip()
-
-    if turso_url and turso_token and _LIBSQL_AVAILABLE:
-        conn = _libsql.connect(
-            database="/tmp/voxly_replica.db",
-            sync_url=turso_url,
-            auth_token=turso_token,
-        )
-        try:
-            conn.sync()
-        except Exception:
-            pass  # first connect before schema exists — safe to ignore
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    # Local fallback — development and pytest
-    conn = sqlite3.connect(db_name)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = _row_factory
     return conn
-
-def create_connection(db_name: str = DB_NAME) -> sqlite3.Connection:
-    """Return a thread-local database connection."""
-    key = f"conn_{db_name}"
-    if not hasattr(_local, key):
-        setattr(_local, key, _create_raw_connection(db_name))
-    return getattr(_local, key)
 
 @contextmanager
 def get_db(db_name: str = DB_NAME):
@@ -161,20 +148,61 @@ def get_db(db_name: str = DB_NAME):
         conn.rollback()
         raise
 
-def create_table() -> None:
-    """Create table."""
+_SCHEMA_STMTS: list[str] = [s.strip() for s in SCHEMA.split(";") if s.strip()]
+
+
+def _ensure_expense_user_column(conn) -> None:
     try:
-        with get_db() as conn:
-            # Ensure legacy `user_id` column exists on `expenses` before applying schema
-            # (older DBs may lack the column, and index creation below would fail).
-            _ensure_column(conn, "expenses", "user_id", "TEXT")
-            _ensure_column(conn, "users", "log_opt_in", "INTEGER NOT NULL DEFAULT 0")
-            conn.executescript(SCHEMA)
+        cur = conn.execute("PRAGMA table_info(expenses)")
+        columns = {row["name"] for row in cur.fetchall()}
+        # columns is empty if the table doesn't exist yet — skip ALTER in that case
+        if columns and "user_id" not in columns:
+            conn.execute("ALTER TABLE expenses ADD COLUMN user_id TEXT")
             conn.commit()
-        log_info("Database schema ensured.")
-    except sqlite3.Error as exc:
-        log_error("Failed to create schema: %s", exc)
-        raise
+    except Exception as exc:
+        log_error("Failed to ensure user_id column: %s", exc)
+
+
+def _ensure_user_logging_column(conn) -> None:
+    try:
+        cur = conn.execute("PRAGMA table_info(users)")
+        columns = {row["name"] for row in cur.fetchall()}
+        if columns and "log_opt_in" not in columns:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN log_opt_in INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.commit()
+    except Exception as exc:
+        log_error("Failed to ensure log_opt_in column: %s", exc)
+
+
+def _ensure_user_logout_column(conn) -> None:
+    try:
+        cur = conn.execute("PRAGMA table_info(users)")
+        columns = {row["name"] for row in cur.fetchall()}
+        if columns and "last_logout_at" not in columns:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN last_logout_at TEXT"
+            )
+            conn.commit()
+    except Exception as exc:
+        log_error("Failed to ensure last_logout_at column: %s", exc)
+
+
+def create_table() -> None:
+    """
+    Ensure schema exists. Uses individual execute() calls instead of
+    executescript() for libsql_experimental compatibility.
+    Raises on failure — don't swallow schema errors at startup.
+    """
+    with get_db() as conn:
+        _ensure_expense_user_column(conn)
+        _ensure_user_logging_column(conn)
+        _ensure_user_logout_column(conn)
+        for stmt in _SCHEMA_STMTS:
+            conn.execute(stmt)
+        conn.commit()
+    log_info("Database schema ensured.")
 
 
 # Automatically ensure schema on import in normal runs.
@@ -184,10 +212,7 @@ _skip_auto = os.environ.get("VOXLY_SKIP_AUTOCREATE", "false").lower() in {"1", "
 _running_pytest = any(k.startswith("PYTEST") for k in os.environ.keys())
 
 if not _skip_auto and not _running_pytest:
-    try:
-        create_table()
-    except Exception as exc:  # pragma: no cover - defensive startup behavior
-        log_error("Automatic schema creation failed: %s", exc)
+    create_table()   # raises on failure — intentional, fail fast at boot
 
 def _normalize_date(date: Optional[str] = None) -> str:
     if date:
@@ -269,7 +294,7 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     try:
         with get_db() as conn:
             cur = conn.execute(
-                "SELECT id, email, password_hash, display_name, created_at, updated_at, log_opt_in FROM users WHERE email = ?",
+                "SELECT id, email, password_hash, display_name, created_at, updated_at, log_opt_in, last_logout_at FROM users WHERE email = ?",
                 (email.lower().strip(),),
             )
             row = cur.fetchone()
@@ -285,13 +310,29 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     try:
         with get_db() as conn:
             cur = conn.execute(
-                "SELECT id, email, password_hash, display_name, created_at, updated_at, log_opt_in FROM users WHERE id = ?",
+                "SELECT id, email, password_hash, display_name, created_at, updated_at, log_opt_in, last_logout_at FROM users WHERE id = ?",
                 (user_id,),
             )
             row = cur.fetchone()
         return dict(row) if row else None
     except sqlite3.Error as exc:
         log_error("Failed to fetch user by id: %s", exc)
+        raise
+
+def update_last_logout(user_id: str) -> None:
+    """Update last_logout_at timestamp for a user."""
+    if not user_id:
+        return
+    timestamp = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE users SET last_logout_at = ?, updated_at = ? WHERE id = ?",
+                (timestamp, timestamp, user_id),
+            )
+            conn.commit()
+    except sqlite3.Error as exc:
+        log_error("Failed to update last_logout_at: %s", exc)
         raise
 
 def touch_user_timestamp(user_id: str) -> None:
@@ -801,16 +842,16 @@ def get_all_expenses(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
 
 def get_user_budgets(user_id: str) -> List[Dict[str, Any]]:
     """Retrieve all active budgets for a given user.
-    
+
     Returns a list of dicts: [{"category": str, "limit_amt": float, "warn_at": float}]
     """
     try:
-        with create_connection() as conn:
+        with get_db() as conn:
             rows = conn.execute(
-                "SELECT category, limit_amount, warn_ratio FROM user_budgets WHERE user_id = ?",
+                "SELECT category, monthly_limit, warn_at FROM user_budgets WHERE user_id = ?",
                 (user_id,)
             ).fetchall()
-            return [{"category": r["category"], "limit_amt": r["limit_amount"], "warn_at": r["warn_ratio"]} for r in rows]
+            return [{"category": r["category"], "limit_amt": r["monthly_limit"], "warn_at": r["warn_at"]} for r in rows]
     except Exception as e:
         log_error("Failed to retrieve budgets: %s", e)
         return []
@@ -825,7 +866,7 @@ def get_dashboard_snapshot(user_id: str, year: int, month: int) -> dict:
     last_of_month = (datetime(year, month, 1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
     last_of_month_str = last_of_month.strftime("%Y-%m-%d")
 
-    with create_connection() as conn:
+    with get_db() as conn:
         # Today's Total
         today_total = float(conn.execute(
             "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE user_id = ? AND date = ?",
@@ -888,11 +929,11 @@ def set_user_budget(user_id: str, category: str, limit_amount: float, warn_ratio
         with get_db() as conn:
             conn.execute(
                 """
-                INSERT INTO user_budgets (user_id, category, limit_amount, warn_ratio, updated_at)
+                INSERT INTO user_budgets (user_id, category, monthly_limit, warn_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, category) DO UPDATE SET
-                    limit_amount=excluded.limit_amount,
-                    warn_ratio=excluded.warn_ratio,
+                    monthly_limit=excluded.monthly_limit,
+                    warn_at=excluded.warn_at,
                     updated_at=excluded.updated_at
                 """,
                 (user_id, category.lower(), limit_amount, warn_ratio, _current_timestamp())
@@ -1044,3 +1085,91 @@ def save_insight(user_id: str, insight_text: str, ttl_days: int = 7) -> None:
             conn.commit()
     except sqlite3.Error as exc:
         log_error("Failed to save insight: %s", exc)
+
+
+_DEFAULT_BUDGET_SEED: list[tuple] = [
+    ("food",          10_000.0, 0.80),
+    ("transport",      4_000.0, 0.75),
+    ("entertainment",  3_000.0, 0.80),
+    ("utilities",      5_000.0, 0.80),
+    ("uncategorized",  2_000.0, 0.90),
+]
+
+
+def seed_default_budgets(user_id: str) -> None:
+    """Insert default budgets for a new user. INSERT OR IGNORE = safe to re-run."""
+    if not user_id:
+        return
+    rows = [(user_id, cat, limit, warn) for cat, limit, warn in _DEFAULT_BUDGET_SEED]
+    try:
+        with get_db() as conn:
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO user_budgets (user_id, category, monthly_limit, warn_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                rows,
+            )
+            conn.commit()
+        log_info("Default budgets seeded for user %s", user_id)
+    except Exception as exc:
+        log_error("Failed to seed budgets for user %s: %s", user_id, exc)
+
+
+def get_user_budget_limits(user_id: str) -> list[dict]:
+    """Fetch per-user budget limits from the database."""
+    if not user_id:
+        return []
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                """
+                SELECT category, monthly_limit, warn_at
+                FROM user_budgets
+                WHERE user_id = ?
+                ORDER BY category
+                """,
+                (user_id,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as exc:
+        log_error("Failed to fetch budget limits for user %s: %s", user_id, exc)
+        return []
+
+class ExpenseRepository:
+    create_user = staticmethod(create_user)
+    get_user_by_email_public = staticmethod(get_user_by_email_public)
+    get_user_by_id_public = staticmethod(get_user_by_id_public)
+    get_user_by_email = staticmethod(get_user_by_email)
+    get_user_by_id = staticmethod(get_user_by_id)
+    update_last_logout = staticmethod(update_last_logout)
+    touch_user_timestamp = staticmethod(touch_user_timestamp)
+    update_user_log_opt_in = staticmethod(update_user_log_opt_in)
+    get_user_preferences = staticmethod(get_user_preferences)
+    log_command_event = staticmethod(log_command_event)
+    add_expense = staticmethod(add_expense)
+    get_total_today = staticmethod(get_total_today)
+    get_total_by_category = staticmethod(get_total_by_category)
+    get_recent_expenses = staticmethod(get_recent_expenses)
+    delete_last_expense = staticmethod(delete_last_expense)
+    delete_expense = staticmethod(delete_expense)
+    update_expense = staticmethod(update_expense)
+    get_weekly_summary = staticmethod(get_weekly_summary)
+    get_monthly_summary = staticmethod(get_monthly_summary)
+    get_monthly_totals_by_category = staticmethod(get_monthly_totals_by_category)
+    get_recurring_expenses = staticmethod(get_recurring_expenses)
+    get_all_expenses = staticmethod(get_all_expenses)
+    get_user_budgets = staticmethod(get_user_budgets)
+    get_dashboard_snapshot = staticmethod(get_dashboard_snapshot)
+    set_user_budget = staticmethod(set_user_budget)
+    remove_user_budget = staticmethod(remove_user_budget)
+    upsert_budget = staticmethod(upsert_budget)
+    delete_budget = staticmethod(delete_budget)
+    get_budgets_for_user = staticmethod(get_budgets_for_user)
+    get_last_command = staticmethod(get_last_command)
+    set_last_command = staticmethod(set_last_command)
+    get_cached_insight = staticmethod(get_cached_insight)
+    save_insight = staticmethod(save_insight)
+    seed_default_budgets = staticmethod(seed_default_budgets)
+    get_user_budget_limits = staticmethod(get_user_budget_limits)
+

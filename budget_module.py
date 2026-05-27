@@ -145,11 +145,28 @@ def evaluate_monthly_budgets(
     now = datetime.now()
     year = year or now.year
     month = month or now.month
-    if not user_id:
+
+    # Per-user DB budgets take precedence over the global budgets table
+    if user_id:
+        from database import get_user_budget_limits   # avoid circular import at module level
+        db_rows = get_user_budget_limits(user_id)
+        if db_rows:
+            limits = {
+                row["category"].lower(): BudgetLimit(
+                    category=row["category"].lower(),
+                    limit=float(row["monthly_limit"]),
+                    warn_ratio=float(row["warn_at"]),
+                )
+                for row in db_rows
+            }
+        else:
+            limits = get_budget_limits(user_id)   # legacy budgets table fallback
+    else:
         return []
-    limits = get_budget_limits(user_id)
+
     if not limits:
         return []
+
     totals = get_monthly_totals_by_category(year=year, month=month, user_id=user_id)
     spending = {row["category"].lower(): float(row["total"]) for row in totals}
     results: List[BudgetStatus] = []

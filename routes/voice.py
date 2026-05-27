@@ -140,31 +140,13 @@ def api_voice_command():
                 except Exception as exc:
                     log_error("Failed to add extra expense from multi-item command: %s", exc)
 
-            response["reply"] = f"Added ₹{float(amount):.2f} to {category}."
-            if extra_ids:
-                response["additional_expense_ids"] = extra_ids
-                response["reply"] = f"Added {1 + len(extra_ids)} expenses."
+            response["reply"] = reply
             response["expense_id"] = expense_id
-            dashboard = _refresh_dashboard(user_id=user_id)
-            response["dashboard"] = dashboard
-            # record this as the last performed command for repeat
-            # removed due to stateless repeat handling
-
-            alert_year = alert_month = None
-            if parsed.get("date"):
-                try:
-                    parsed_date = datetime.strptime(parsed["date"], DATE_FORMAT)
-                    alert_year, alert_month = parsed_date.year, parsed_date.month
-                except ValueError:
-                    pass
-            status = get_alert_for_category(category, user_id=user_id, year=alert_year, month=alert_month)
-            if status:
-                response["budget_alert"] = status.message
+            response["reload"] = True
+            return jsonify(response)
         except Exception as exc:
             log_error("Voice add expense failed: %s", exc)
-            response["reply"] = "Failed to add the expense."
-            return jsonify(response), 500
-        return jsonify(response)
+            return jsonify({"error": "Failed to add the expense.", "code": "EXPENSE_CREATE_FAILED"}), 500
 
     if action == "delete":
         try:
@@ -175,10 +157,11 @@ def api_voice_command():
             return jsonify(response), 500
         if not removed_id:
             response["reply"] = "No expense to delete."
+            response["reload"] = False
             return jsonify(response)
         response["reply"] = f"Deleted expense number {removed_id}."
         response["deleted_expense_id"] = removed_id
-        response["dashboard"] = _refresh_dashboard(user_id=user_id)
+        response["reload"] = True
         return jsonify(response)
 
     if action == "balance":
@@ -280,32 +263,21 @@ def api_voice_command():
             return jsonify(response), 500
         limits = get_budget_limits(user_id)
         limit_info = limits.get(category.lower())
-        statuses = evaluate_monthly_budgets(user_id=user_id)
-        status = _find_budget_status(category, statuses)
-        if status:
-            lines = _collect_budget_lines([status], limits)
-            response["reply"] = lines[0]
-            response["budget_status"] = asdict(status)
-        elif limit_info:
+        if limit_info:
             warn_percent = int(round(limit_info.warn_ratio * 100))
             human_name = _humanize_category_name(category)
-            response["reply"] = (
-                f"Set {human_name} budget to ₹{limit_info.limit:.0f} with alerts at {warn_percent}%."
-            )
+            reply = f"Set {human_name} budget to ₹{limit_info.limit:.0f} with alerts at {warn_percent}%."
         else:
             human_name = _humanize_category_name(category)
-            response["reply"] = f"Set {human_name} budget to ₹{limit_value:.0f}."
-        if statuses:
-            response["budget_statuses"] = _serialize_budget_status(statuses)
-            response["budget_lines"] = _collect_budget_lines(statuses, limits)
+            reply = f"Set {human_name} budget to ₹{limit_value:.0f}."
+        response["reply"] = reply
+        response["reload"] = True
         if limit_info:
-            response["budget_limit"] = {
-                "category": limit_info.category,
-                "limit": limit_info.limit,
-                "warn_ratio": limit_info.warn_ratio,
-            }
-        if warn_ratio is not None:
-            response["warn_ratio"] = warn_ratio
+            response["warn_ratio"] = limit_info.warn_ratio
+            statuses = evaluate_monthly_budgets(user_id=user_id)
+            status = _find_budget_status(category, statuses)
+            if status:
+                response["budget_status"] = asdict(status)
         return jsonify(response)
 
     if action == "remove_budget":
@@ -326,18 +298,10 @@ def api_voice_command():
         human_name = _humanize_category_name(category)
         if not removed:
             response["reply"] = f"No budget configured for {human_name}."
+            response["reload"] = False
             return jsonify(response)
-        limits = get_budget_limits(user_id)
-        statuses = evaluate_monthly_budgets(user_id=user_id)
-        lines = _collect_budget_lines(statuses, limits) if statuses else []
-        if lines:
-            response["reply"] = f"Removed {human_name} budget. " + " ".join(lines)
-        else:
-            response["reply"] = f"Removed {human_name} budget. No budgets remain."
-        if statuses:
-            response["budget_statuses"] = _serialize_budget_status(statuses)
-            response["budget_lines"] = lines
-        response["removed_budget"] = category.lower()
+        response["reply"] = f"Removed {human_name} budget."
+        response["reload"] = True
         return jsonify(response)
 
     if action == "chart_summary":

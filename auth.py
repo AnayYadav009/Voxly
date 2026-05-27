@@ -54,6 +54,7 @@ def verify_password(password: str, password_hash: str) -> bool:
     """
     if not password or not password_hash:
         return False
+    password = password.strip()   # ← match hash_password() behaviour exactly
     try:
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     except (ValueError, TypeError):
@@ -77,6 +78,8 @@ def validate_password_strength(password: str) -> None:
     """
     if len(password) < 8:
         raise PasswordPolicyError("Password must be at least 8 characters long.")
+    if len(password) > 72:
+        raise PasswordPolicyError("Password must be at most 72 characters long.")
     if not any(c.isupper() for c in password):
         raise PasswordPolicyError("Password must contain at least one uppercase letter.")
     if not any(c.islower() for c in password):
@@ -106,7 +109,18 @@ def _decode_token(token: str, expected_type: str) -> Optional[str]:
     token_type = payload.get("type", "access")
     if token_type != expected_type:
         return None
-    return str(payload.get("sub"))
+    user_id = str(payload.get("sub"))
+    from database import get_user_by_id
+    user = get_user_by_id(user_id)
+    if user and user.get("last_logout_at"):
+        try:
+            logout_dt = datetime.fromisoformat(user["last_logout_at"])
+            iat_dt = datetime.fromtimestamp(payload.get("iat", 0), timezone.utc)
+            if iat_dt < logout_dt:
+                return None
+        except Exception:
+            return None
+    return user_id
 
 
 def create_access_token(user_id: str, expires_minutes: Optional[int] = None) -> str:

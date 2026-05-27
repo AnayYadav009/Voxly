@@ -57,7 +57,6 @@ from summary_module import (
     get_weekly_summary_text,
 )
 from visual_module import (
-    generate_all_charts,
     get_category_breakdown,
     get_monthly_totals_by_month,
     get_recent_daily_totals,
@@ -68,6 +67,7 @@ from insight_module import generate_insight
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from config import RATE_LIMIT_STORAGE_URI
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
@@ -81,7 +81,7 @@ limiter = Limiter(
     key_func=get_remote_address,
     app=app,
     default_limits=[],
-    storage_uri="memory://",
+    storage_uri=RATE_LIMIT_STORAGE_URI,
 )
 
 @app.errorhandler(413)
@@ -210,20 +210,20 @@ def _serve_react_asset(path: Optional[str] = None):
     return send_from_directory(REACT_BUILD_DIR, "index.html")
 
 def _serialize_category_breakdown(user_id: Optional[str] = None) -> Dict[str, Any]:
-    df = get_category_breakdown(user_id=user_id)
-    if df.empty:
+    rows = get_category_breakdown(user_id=user_id)
+    if not rows:
         return {"items": []}
     items = [
         {"category": str(row["category"]), "total": float(row["total"])}
-        for _, row in df.iterrows()
+        for row in rows
     ]
     return {"items": items}
 
 def _serialize_daily_totals(days: int = 7, user_id: Optional[str] = None) -> Dict[str, Any]:
-    df = get_recent_daily_totals(days, user_id=user_id)
+    rows = get_recent_daily_totals(days, user_id=user_id)
     totals_by_date = {
         str(row["date"]): float(row["total"])
-        for _, row in df.iterrows()
+        for row in rows
     }
     today = datetime.now().date()
     start_date = today - timedelta(days=days - 1)
@@ -241,10 +241,10 @@ def _serialize_daily_totals(days: int = 7, user_id: Optional[str] = None) -> Dic
     return {"items": series}
 
 def _serialize_monthly_totals(months: int = 6, user_id: Optional[str] = None) -> Dict[str, Any]:
-    df = get_monthly_totals_by_month(months, user_id=user_id)
+    rows = get_monthly_totals_by_month(months, user_id=user_id)
     totals_by_month = {
         str(row["month"]): float(row["total"])
-        for _, row in df.iterrows()
+        for row in rows
     }
     first_of_month = datetime.now().replace(day=1)
     months_sequence = []
@@ -285,15 +285,16 @@ def _safe_limit(value: Any, default: int = 5, *, minimum: int = 1, maximum: int 
 
 def _fetch_totals(user_id: Optional[str] = None):
     """Return (total_today, category_totals) in a single DB connection."""
-    from database import create_connection, _normalize_date
+    from database import get_db, _normalize_date
     today = _normalize_date()
-    with create_connection() as conn:
+    with get_db() as conn:
         params_today = [today]
-        sql_today = "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date = ?"
+        sql_today = "SELECT COALESCE(SUM(amount), 0) AS total_today FROM expenses WHERE date = ?"
         if user_id:
             sql_today += " AND user_id = ?"
             params_today.append(user_id)
-        total_today = float(conn.execute(sql_today, params_today).fetchone()[0] or 0)
+        row = conn.execute(sql_today, params_today).fetchone()
+        total_today = float(row["total_today"] if row and "total_today" in row else 0)
 
         where = "WHERE user_id = ?" if user_id else ""
         params_cat = (user_id,) if user_id else ()
@@ -306,7 +307,7 @@ def _fetch_totals(user_id: Optional[str] = None):
     return total_today, category_totals
 
 def _build_dashboard_context(user_id: Optional[str] = None):
-    charts = generate_all_charts(user_id=user_id)
+    charts = {}   # PNG pipeline removed — frontend uses chart_series JSON
     budget_statuses = evaluate_monthly_budgets(user_id=user_id) if user_id else []
     
     if user_id:

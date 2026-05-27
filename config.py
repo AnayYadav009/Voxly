@@ -30,22 +30,21 @@ _JWT_SECRET_DEFAULT = "dev-secret-change-me"
 TURSO_URL   = os.environ.get("TURSO_URL", "")
 TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
 # --- CORS: comma-separated list of allowed frontend origins ---
+# Use VOXLY_ALLOWED_ORIGINS (or legacy CORS_ORIGINS) in production.
 _ALLOWED_ORIGINS_RAW = (
     os.environ.get("VOXLY_ALLOWED_ORIGINS")
+    or os.environ.get("FRONTEND_ORIGIN")
     or os.environ.get("CORS_ORIGINS")
     or "http://localhost:3000"
 )
-JWT_SECRET = os.environ.get("VOXLY_JWT_SECRET", _JWT_SECRET_DEFAULT)
+# --- Rate limiting: swap to redis:// in production for distributed deployments ---
+RATE_LIMIT_STORAGE_URI = os.environ.get("VOXLY_RATE_LIMIT_STORAGE_URI", "memory://")
+JWT_SECRET = os.environ.get("VOXLY_JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("VOXLY_JWT_SECRET must be set in production")
 JWT_ALGORITHM = os.environ.get("VOXLY_JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRES_MINUTES = int(os.environ.get("VOXLY_JWT_EXPIRES_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRES_DAYS = int(os.environ.get("VOXLY_JWT_REFRESH_DAYS", "7"))
-
-if JWT_SECRET == "dev-secret-change-me":
-    raise RuntimeError(
-        "VOXLY_JWT_SECRET environment variable must be set to a strong "
-        "random secret before running in any environment. "
-        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-    )
 
 ALLOWED_ORIGINS = [
     origin.strip()

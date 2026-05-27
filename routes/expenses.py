@@ -85,7 +85,7 @@ def api_recent():
     date_to = request.args.get("to")
     category = request.args.get("category", "").strip().lower() or None
 
-    from database import create_connection
+    from database import get_db
     conditions = ["user_id = ?"]
     params = [user_id]
     if date_from:
@@ -99,7 +99,7 @@ def api_recent():
         params.append(category)
     params.append(limit)
     where = " AND ".join(conditions)
-    with create_connection() as conn:
+    with get_db() as conn:
         rows = conn.execute(
             f"SELECT id, amount, category, description, payment_method, date, time "
             f"FROM expenses WHERE {where} ORDER BY date DESC, time DESC, id DESC LIMIT ?",
@@ -109,6 +109,7 @@ def api_recent():
 
 
 @expenses_bp.route("/add", methods=["POST"])
+@limiter.limit("60 per minute")
 def api_add():
     """Handle API add."""
     user = _require_authenticated_user()
@@ -126,14 +127,12 @@ def api_add():
 
     try:
         expense_id = add_expense(amount, category, user_id=user["id"])
-        context = _build_dashboard_context(user_id=user["id"])
         log_info("Expense added via API (id=%s)", expense_id)
         return jsonify(
             {
                 "message": f"Added ₹{amount:.2f} to {category}.",
                 "expense_id": expense_id,
-                "total_today": context["total_today"],
-                "monthly_total": context["monthly_total"],
+                "reload": True,
             }
         )
     except Exception as exc:
@@ -165,7 +164,7 @@ def api_update_expense(expense_id: int):
         return jsonify({"error": "Failed to update expense."}), 500
     if not updated:
         return jsonify({"error": "Expense not found."}), 404
-    return jsonify({"message": "Expense updated."})
+    return jsonify({"message": "Expense updated.", "reload": True})
 
 
 @expenses_bp.route("/export")
@@ -356,3 +355,18 @@ def api_insight():
     except Exception as exc:
         log_error("Insight endpoint failed: %s", exc)
         return jsonify({"insight": None, "error": "Could not generate insight."}), 500
+
+
+@expenses_bp.route("/dashboard")
+@limiter.limit("60 per minute")
+def api_dashboard():
+    """Single endpoint returning all dashboard data at once."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    try:
+        context = _build_dashboard_context(user_id=user["id"])
+        return jsonify(context)
+    except Exception as exc:
+        log_error("Dashboard endpoint failed: %s", exc)
+        return jsonify({"error": "Failed to load dashboard."}), 500

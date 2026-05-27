@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 from flask import Blueprint, request, jsonify, make_response, g
 
 from config import ACCESS_TOKEN_EXPIRES_MINUTES, REFRESH_TOKEN_EXPIRES_DAYS
-from database import get_user_by_email, create_user, touch_user_timestamp, get_user_by_id
+from database import get_user_by_email, create_user, touch_user_timestamp, get_user_by_id, seed_default_budgets, update_last_logout
 from auth import (
     hash_password,
     PasswordPolicyError,
@@ -99,6 +99,7 @@ def api_auth_register():
     except sqlite3.IntegrityError:
         return jsonify({"error": "Email already in use."}), 409
 
+    seed_default_budgets(user["id"])        # ← seed default budgets for the new user
     return _auth_success_response(user)
 
 @auth_bp.route("/login", methods=["POST"])
@@ -132,7 +133,7 @@ def api_auth_logout():
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
-    touch_user_timestamp(user["id"])
+    update_last_logout(user["id"])
     response = make_response(jsonify({"status": "logged_out"}))
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/api/auth/refresh")

@@ -1,9 +1,9 @@
 import pytest
 from database import create_connection, get_db
 
-def test_create_connection():
-    # Test that create_connection returns a valid connection
-    conn = create_connection(":memory:")
+def test_create_connection(tmp_path):
+    db_file = str(tmp_path / "test.db")
+    conn = create_connection(db_file)
     assert conn is not None
     
     # Test that we can execute queries
@@ -15,11 +15,12 @@ def test_create_connection():
     cursor.execute("SELECT value FROM test_table WHERE id = 1")
     row = cursor.fetchone()
     assert row is not None
-    assert row[0] == "hello"
+    assert row["value"] == "hello"
 
-def test_get_db():
+def test_get_db(tmp_path):
+    db_file = str(tmp_path / "test.db")
     # Test context manager
-    with get_db(":memory:") as conn:
+    with get_db(db_file) as conn:
         assert conn is not None
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE IF NOT EXISTS test_table2 (id INTEGER PRIMARY KEY, value TEXT)")
@@ -27,9 +28,9 @@ def test_get_db():
         # Context manager does not commit automatically
         conn.commit()
         
-    with get_db(":memory:") as conn:
+    with get_db(db_file) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM test_table2 WHERE id = 1")
         row = cursor.fetchone()
         assert row is not None
-        assert row[0] == "world"
+        assert row["value"] == "world"

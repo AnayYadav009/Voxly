@@ -1,4 +1,9 @@
 * text=auto
+*.py eol=lf
+*.js eol=lf
+*.jsx eol=lf
+frontend/* text=auto
+* text=auto
 
 *.py text eol=lf
 *.js text eol=lf
