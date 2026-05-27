@@ -117,6 +117,54 @@ def _row_factory(cursor, row):
     return dict(zip(cols, row))
 
 
+class DictCursor:
+    """Wraps a DB cursor to always return dicts (mostly for libsql_experimental)."""
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def __getattr__(self, name):
+        return getattr(self.cursor, name)
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        if row is None: return None
+        return _row_factory(self.cursor, row)
+
+    def fetchall(self):
+        return [_row_factory(self.cursor, row) for row in self.cursor.fetchall()]
+
+    def fetchmany(self, size=None):
+        rows = self.cursor.fetchmany() if size is None else self.cursor.fetchmany(size)
+        return [_row_factory(self.cursor, row) for row in rows]
+
+    def __iter__(self):
+        for row in self.cursor:
+            yield _row_factory(self.cursor, row)
+
+class DictConnection:
+    """Wraps a DB connection to yield DictCursors (mostly for libsql_experimental)."""
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self.conn, name)
+
+    def cursor(self):
+        return DictCursor(self.conn.cursor())
+
+    def execute(self, *args, **kwargs):
+        return DictCursor(self.conn.execute(*args, **kwargs))
+
+    def __enter__(self):
+        if hasattr(self.conn, '__enter__'):
+            self.conn.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if hasattr(self.conn, '__exit__'):
+            return self.conn.__exit__(exc_type, exc_val, exc_tb)
+        return False
+
 def create_connection(db_name: str = DB_NAME):
     """
     Returns a DBAPI-2 connection.
@@ -132,11 +180,11 @@ def create_connection(db_name: str = DB_NAME):
                 "installed. Add it to requirements.txt."
             ) from exc
         conn = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
+        return DictConnection(conn)
     else:
         conn = sqlite3.connect(db_name)
-
-    conn.row_factory = _row_factory
-    return conn
+        conn.row_factory = _row_factory
+        return conn
 
 @contextmanager
 def get_db(db_name: str = DB_NAME):
