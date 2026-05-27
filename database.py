@@ -189,11 +189,12 @@ def create_connection(db_name: str = DB_NAME):
 @contextmanager
 def get_db(db_name: str = DB_NAME):
     """Context manager for DB connections."""
-    conn = create_connection(db_name)
+    if not hasattr(_local, "conn"):
+        _local.conn = create_connection(db_name)
     try:
-        yield conn
+        yield _local.conn
     except Exception:
-        conn.rollback()
+        _local.conn.rollback()
         raise
 
 _SCHEMA_STMTS: list[str] = [s.strip() for s in SCHEMA.split(";") if s.strip()]
