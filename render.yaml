@@ -14,7 +14,7 @@ services:
       - key: VOXLY_SKIP_AUTOCREATE
         value: "false"
       - key: TURSO_URL
-        sync: false          # you will paste the real value in the Render dashboard
+        sync: false # you will paste the real value in the Render dashboard
       - key: TURSO_TOKEN
         sync: false
       - key: VOXLY_JWT_SECRET

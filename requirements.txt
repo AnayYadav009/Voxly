@@ -12,4 +12,4 @@ pytest>=7.0
 gunicorn>=21.2.0
 groq>=0.4.2
 Flask-Limiter>=3.5.0
-libsql-experimental>=0.3.0
+libsql-experimental==0.0.55
