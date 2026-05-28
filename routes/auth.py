@@ -61,7 +61,7 @@ def _auth_success_response(user: Dict[str, Any]):
         max_age=ACCESS_TOKEN_EXPIRES_MINUTES * 60,
         httponly=True,
         secure=os.environ.get("FLASK_ENV") == "production",
-        samesite="Strict",
+        samesite="None",
         path="/",
     )
     response.set_cookie(
@@ -70,7 +70,7 @@ def _auth_success_response(user: Dict[str, Any]):
         max_age=REFRESH_TOKEN_EXPIRES_DAYS * 24 * 3600,
         httponly=True,
         secure=os.environ.get("FLASK_ENV") == "production",
-        samesite="Strict",
+        samesite="None",
         path="/api/auth/refresh",
     )
     return response
@@ -135,8 +135,9 @@ def api_auth_logout():
         return _unauthorized_response()
     update_last_logout(user["id"])
     response = make_response(jsonify({"status": "logged_out"}))
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/api/auth/refresh")
+    secure_cookie = os.environ.get("FLASK_ENV") == "production"
+    response.delete_cookie("access_token", path="/", samesite="None", secure=secure_cookie)
+    response.delete_cookie("refresh_token", path="/api/auth/refresh", samesite="None", secure=secure_cookie)
     return response
 
 @auth_bp.route("/refresh", methods=["POST"])
@@ -166,7 +167,7 @@ def api_auth_refresh():
         max_age=ACCESS_TOKEN_EXPIRES_MINUTES * 60,
         httponly=True,
         secure=os.environ.get("FLASK_ENV") == "production",
-        samesite="Strict",
+        samesite="None",
         path="/",
     )
     response.set_cookie(
@@ -175,7 +176,7 @@ def api_auth_refresh():
         max_age=REFRESH_TOKEN_EXPIRES_DAYS * 24 * 3600,
         httponly=True,
         secure=os.environ.get("FLASK_ENV") == "production",
-        samesite="Strict",
+        samesite="None",
         path="/api/auth/refresh",
     )
     return response
