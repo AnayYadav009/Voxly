@@ -40,6 +40,7 @@ from database import (
     add_expense,
     create_user,
     delete_last_expense,
+    ensure_schema_once,
     get_dashboard_snapshot,
     get_recent_expenses,
     get_total_today,
@@ -179,6 +180,7 @@ def _should_log_commands(user: Optional[Dict[str, Any]]) -> bool:
 @app.before_request
 def attach_current_user() -> None:
     """Attach current user."""
+    ensure_schema_once()
     g.current_user = None
     token = _extract_bearer_token()
     if not token:

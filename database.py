@@ -189,12 +189,15 @@ def create_connection(db_name: str = DB_NAME):
 @contextmanager
 def get_db(db_name: str = DB_NAME):
     """Context manager for DB connections."""
-    if not hasattr(_local, "conn"):
+    pid = os.getpid()
+    if getattr(_local, "pid", None) != pid or getattr(_local, "conn", None) is None:
+        _local.pid = pid
         _local.conn = create_connection(db_name)
     try:
         yield _local.conn
     except Exception:
-        _local.conn.rollback()
+        if hasattr(_local.conn, "rollback"):
+            _local.conn.rollback()
         raise
 
 _SCHEMA_STMTS: list[str] = [s.strip() for s in SCHEMA.split(";") if s.strip()]
@@ -260,8 +263,15 @@ def create_table() -> None:
 _skip_auto = os.environ.get("VOXLY_SKIP_AUTOCREATE", "false").lower() in {"1", "true", "yes"}
 _running_pytest = any(k.startswith("PYTEST") for k in os.environ.keys())
 
-if not _skip_auto and not _running_pytest:
-    create_table()   # raises on failure — intentional, fail fast at boot
+# Ensure schema lazily instead of on import, so we don't start Tokio before fork
+_schema_ensured = False
+def ensure_schema_once():
+    global _schema_ensured
+    if not _schema_ensured:
+        try:
+            create_table()
+        finally:
+            _schema_ensured = True
 
 def _normalize_date(date: Optional[str] = None) -> str:
     if date:
