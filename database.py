@@ -153,7 +153,10 @@ class DictConnection:
         return DictCursor(self.conn.cursor())
 
     def execute(self, *args, **kwargs):
-        return DictCursor(self.conn.execute(*args, **kwargs))
+        # Convert any passed list into a tuple, as libsql-experimental strictly expects tuples
+        new_args = tuple(tuple(arg) if isinstance(arg, list) else arg for arg in args)
+        new_kwargs = {k: (tuple(v) if isinstance(v, list) else v) for k, v in kwargs.items()}
+        return DictCursor(self.conn.execute(*new_args, **new_kwargs))
 
     def __enter__(self):
         if hasattr(self.conn, '__enter__'):
@@ -287,23 +290,25 @@ def create_user(email: str, password_hash: str, display_name: Optional[str] = No
     """Create user."""
     user_id = str(uuid4())
     timestamp = _current_timestamp()
+    email_clean = email.lower().strip()
     payload = {
         "id": user_id,
-        "email": email.lower().strip(),
+        "email": email_clean,
         "password_hash": password_hash,
         "display_name": display_name,
         "created_at": timestamp,
         "updated_at": timestamp,
         "log_opt_in": 0,
     }
+    payload_tuple = (user_id, email_clean, password_hash, display_name, timestamp, timestamp, 0)
     try:
         with get_db() as conn:
             conn.execute(
                 """
                 INSERT INTO users (id, email, password_hash, display_name, created_at, updated_at, log_opt_in)
-                VALUES (:id, :email, :password_hash, :display_name, :created_at, :updated_at, :log_opt_in)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                payload,
+                payload_tuple,
             )
             conn.commit()
         log_info("Created user %s", user_id)
@@ -456,14 +461,26 @@ def log_command_event(
         "metadata": json.dumps(metadata or {}),
         "created_at": _current_timestamp(),
     }
+    payload_tuple = (
+        payload["id"],
+        payload["user_id"],
+        payload["raw_text"],
+        payload["parsed_payload"],
+        payload["intent"],
+        payload["entities"],
+        payload["channel"],
+        payload["confidence"],
+        payload["metadata"],
+        payload["created_at"]
+    )
     try:
         with get_db() as conn:
             conn.execute(
                 """
                 INSERT INTO command_logs (id, user_id, raw_text, parsed_payload, intent, entities, channel, confidence, metadata, created_at)
-                VALUES (:id, :user_id, :raw_text, :parsed_payload, :intent, :entities, :channel, :confidence, :metadata, :created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                payload,
+                payload_tuple,
             )
             conn.commit()
     except sqlite3.Error as exc:
@@ -488,14 +505,23 @@ def add_expense(
         "time": _normalize_time(time),
         "user_id": user_id,
     }
+    payload_tuple = (
+        payload["amount"],
+        payload["category"],
+        payload["description"],
+        payload["payment_method"],
+        payload["date"],
+        payload["time"],
+        payload["user_id"]
+    )
     try:
         with get_db() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO expenses (amount, category, description, payment_method, date, time, user_id)
-                VALUES (:amount, :category, :description, :payment_method, :date, :time, :user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                payload,
+                payload_tuple,
             )
             conn.commit()
             expense_id = cur.lastrowid
