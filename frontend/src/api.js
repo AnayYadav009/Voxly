@@ -148,7 +148,8 @@ async function apiFetch(path, options = {}) {
 
       return data;
     } catch (error) {
-      if (!error.status && retriesLeft > 0) {
+      const isAborted = controller.signal.aborted || error.name === "AbortError";
+      if (!error.status && retriesLeft > 0 && !isAborted) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         return attemptRequest(retriesLeft - 1);
       }
@@ -206,7 +207,7 @@ export const sendVoiceCommand = (command) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ command }),
-    timeout: 15000,
+    timeout: 45000,
   });
 
 export const registerUser = (payload) =>

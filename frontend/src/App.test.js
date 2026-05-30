@@ -5,26 +5,42 @@ import App from './App';
 import * as api from './api';
 import { formatINR } from './utils';
 
-jest.mock('lucide-react', () => ({
-  Mic: () => <div data-testid="mic-icon" />,
-  MicOff: () => <div data-testid="mic-off-icon" />,
-  Menu: () => <div data-testid="menu-icon" />,
-  User: () => <div data-testid="user-icon" />,
-  LogOut: () => <div />,
-  Settings: () => <div />,
-  AlertCircle: () => <div />,
-  CheckCircle: () => <div />,
-  Info: () => <div />,
-  ChevronDown: () => <div />,
-  ChevronUp: () => <div />,
-  TrendingUp: () => <div />,
-  Calendar: () => <div />,
-  Wallet: () => <div />,
-  PieChart: () => <div />,
-  BarChart3: () => <div />,
-  Plus: () => <div />,
-  X: () => <div />,
-}));
+jest.mock('lucide-react', () => {
+  const mockIcon = (name) => {
+    return (props) => {
+      let testId = `${name.toLowerCase()}-icon`;
+      if (name === 'MicOff') testId = 'mic-off-icon';
+      return <span data-testid={testId} {...props} />;
+    };
+  };
+  return {
+    Mic: mockIcon('Mic'),
+    MicOff: mockIcon('MicOff'),
+    TrendingUp: mockIcon('TrendingUp'),
+    Calendar: mockIcon('Calendar'),
+    Wallet: mockIcon('Wallet'),
+    PieChart: mockIcon('PieChart'),
+    BarChart3: mockIcon('BarChart3'),
+    Plus: mockIcon('Plus'),
+    Sun: mockIcon('Sun'),
+    Moon: mockIcon('Moon'),
+    LogOut: mockIcon('LogOut'),
+    Settings: mockIcon('Settings'),
+    Bell: mockIcon('Bell'),
+    ChevronRight: mockIcon('ChevronRight'),
+    ChevronDown: mockIcon('ChevronDown'),
+    Activity: mockIcon('Activity'),
+    Home: mockIcon('Home'),
+    X: mockIcon('X'),
+    AlertTriangle: mockIcon('AlertTriangle'),
+    CheckCircle: mockIcon('CheckCircle'),
+    Info: mockIcon('Info'),
+    Menu: mockIcon('Menu'),
+    Zap: mockIcon('Zap'),
+    ArrowUpRight: mockIcon('ArrowUpRight'),
+    ArrowDownRight: mockIcon('ArrowDownRight'),
+  };
+});
 
 jest.mock('./api');
 
@@ -75,7 +91,7 @@ describe('Voxly Dashboard', () => {
   test('renders dashboard when authenticated', async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getAllByText(/Voice Finance Tracker/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Voxly/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -83,16 +99,26 @@ describe('Voxly Dashboard', () => {
     api.getStoredTokens.mockReturnValue({ accessToken: null, refreshToken: null });
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByText(/Sign in/i)).toBeInTheDocument();
+      expect(screen.getByText(/Email/i)).toBeInTheDocument();
     });
   });
 
   test('add expense button does not submit with no amount', async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Add Expense/i })).toBeInTheDocument();
+      expect(screen.getAllByText(/Voxly/i).length).toBeGreaterThan(0);
     });
-    const btn = screen.getByRole('button', { name: /^Add$/i });
+    
+    // Switch to Expenses tab
+    const expensesTabBtn = screen.getByRole('button', { name: /Expenses/i });
+    await userEvent.click(expensesTabBtn);
+
+    let btn;
+    await waitFor(() => {
+      btn = screen.getByRole('button', { name: /Add Expense/i });
+      expect(btn).toBeInTheDocument();
+    });
+    
     await userEvent.click(btn);
     expect(api.addExpense).not.toHaveBeenCalled();
   });
