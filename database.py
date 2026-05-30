@@ -590,13 +590,13 @@ def get_total_today(user_id: Optional[str] = None) -> float:
     today = _normalize_date()
     try:
         with get_db() as conn:
-            sql = "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date = ?"
+            sql = "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE date = ?"
             params: List[Any] = [today]
             if user_id:
                 sql += " AND user_id = ?"
                 params.append(user_id)
             cur = conn.execute(sql, params)
-            total = cur.fetchone()[0]
+            total = cur.fetchone()["total"]
         return float(total or 0.0)
     except sqlite3.Error as exc:
         log_error("Failed to fetch today's total: %s", exc)
@@ -1012,15 +1012,15 @@ def get_dashboard_snapshot(user_id: str, year: int, month: int) -> dict:
     with get_db() as conn:
         # Today's Total
         today_total = float(conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE user_id = ? AND date = ?",
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? AND date = ?",
             (user_id, today)
-        ).fetchone()[0] or 0)
+        ).fetchone()["total"] or 0)
 
         # Monthly Total
         monthly_total = float(conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE user_id = ? AND date >= ? AND date <= ?",
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? AND date >= ? AND date <= ?",
             (user_id, first_of_month, last_of_month_str)
-        ).fetchone()[0] or 0)
+        ).fetchone()["total"] or 0)
 
         # Monthly Category Totals
         cat_rows = conn.execute(
