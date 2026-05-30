@@ -15,7 +15,15 @@ def _fetch_single(query: str, params: Tuple = ()) -> float:
         with get_db() as conn:
             cur = conn.execute(query, params)
             result = cur.fetchone()
-            return float(result[0] or 0.0)
+            if result:
+                if hasattr(result, "keys"):
+                    keys = list(result.keys())
+                    val = result[keys[0]] if keys else 0
+                else:
+                    val = result[0]
+            else:
+                val = 0
+            return float(val or 0.0)
     except sqlite3.Error as exc:
         log_error("Summary fetch error: %s", exc)
         raise
@@ -217,13 +225,14 @@ def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
     try:
         with get_db() as conn:
             # 1. Total
-            q_total = "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date >= ? AND date < ?"
+            q_total = "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE date >= ? AND date < ?"
             p_total: List[str] = [start_str, end_str]
             if user_id:
                 q_total += " AND user_id = ?"
                 p_total.append(user_id)
             cur = conn.execute(q_total, p_total)
-            total = float(cur.fetchone()[0] or 0.0)
+            row = cur.fetchone()
+            total = float(row["total"] or 0.0) if row else 0.0
 
             # 2. Category Breakdown
             conds = ["date >= ?", "date < ?"]
