@@ -26,9 +26,10 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 init_directories()
-purge_expired_revocations()
 
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
+
+_purge_done = False
 
 limiter.init_app(app)
 
@@ -88,7 +89,11 @@ def _should_log_commands(user: Optional[Dict[str, Any]]) -> bool:
 @app.before_request
 def attach_current_user() -> None:
     """Attach current user."""
+    global _purge_done
     ensure_schema_once()
+    if not _purge_done:
+        _purge_done = True
+        purge_expired_revocations()
     g.current_user = None
     g.token_jti = None
     token = _extract_bearer_token()

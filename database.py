@@ -417,7 +417,7 @@ def revoke_token(jti: str) -> None:
                 (jti, _current_timestamp()),
             )
             conn.commit()
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, ValueError) as exc:
         log_error("Failed to revoke token: %s", exc)
 
 
@@ -432,7 +432,7 @@ def is_token_revoked(jti: str) -> bool:
                 (jti,),
             )
             return cur.fetchone() is not None
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, ValueError) as exc:
         log_error("Failed to check token revocation: %s", exc)
         return False
 
@@ -449,7 +449,7 @@ def purge_expired_revocations(older_than_minutes: int = 120) -> None:
                 (cutoff,),
             )
             conn.commit()
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, ValueError) as exc:
         log_error("Failed to purge expired revocations: %s", exc)
 
 
