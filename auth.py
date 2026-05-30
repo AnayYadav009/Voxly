@@ -5,8 +5,10 @@ and decoding for secure API access.
 """
 from __future__ import annotations
 
+import re
+import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Tuple
 
 import bcrypt
 import jwt
@@ -80,10 +82,10 @@ def validate_password_strength(password: str) -> None:
         raise PasswordPolicyError("Password must be at least 8 characters long.")
     if len(password) > 72:
         raise PasswordPolicyError("Password must be at most 72 characters long.")
-    if not any(c.isupper() for c in password):
-        raise PasswordPolicyError("Password must contain at least one uppercase letter.")
-    if not any(c.islower() for c in password):
-        raise PasswordPolicyError("Password must contain at least one lowercase letter.")
+    if not re.search(r'[A-Z]', password) or not re.search(r'[a-z]', password):
+        raise PasswordPolicyError(
+            "Password must include both uppercase and lowercase characters."
+        )
     if not any(char.isdigit() for char in password):
         raise PasswordPolicyError("Password must contain at least one number.")
 
@@ -92,6 +94,7 @@ def _encode_token(user_id: str, expires_delta: timedelta, token_type: str) -> st
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
+        "jti": str(uuid.uuid4()),
         "iat": int(now.timestamp()),
         "exp": int((now + expires_delta).timestamp()),
         "type": token_type,
@@ -99,7 +102,7 @@ def _encode_token(user_id: str, expires_delta: timedelta, token_type: str) -> st
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def _decode_token(token: str, expected_type: str) -> Optional[str]:
+def _decode_token(token: str, expected_type: str) -> Optional[Tuple[str, str]]:
     if not token:
         return None
     try:
@@ -110,6 +113,7 @@ def _decode_token(token: str, expected_type: str) -> Optional[str]:
     if token_type != expected_type:
         return None
     user_id = str(payload.get("sub"))
+    jti = str(payload.get("jti", ""))
     from database import get_user_by_id
     user = get_user_by_id(user_id)
     if user and user.get("last_logout_at"):
@@ -120,7 +124,7 @@ def _decode_token(token: str, expected_type: str) -> Optional[str]:
                 return None
         except Exception:
             return None
-    return user_id
+    return user_id, jti
 
 
 def create_access_token(user_id: str, expires_minutes: Optional[int] = None) -> str:
@@ -153,27 +157,21 @@ def create_refresh_token(user_id: str, expires_days: Optional[int] = None) -> st
     return _encode_token(user_id, timedelta(days=lifetime_days), "refresh")
 
 
-def decode_access_token(token: str) -> Optional[str]:
+def decode_access_token(token: str) -> Optional[Tuple[str, str]]:
     """Decode and validate an access token.
-    
-    Args:
-        token: The encoded JWT access token.
-        
+
     Returns:
-        Optional[str]: The user ID if valid, None otherwise.
+        Optional[Tuple[str, str]]: (user_id, jti) if valid, None otherwise.
 
     """
     return _decode_token(token, "access")
 
 
-def decode_refresh_token(token: str) -> Optional[str]:
+def decode_refresh_token(token: str) -> Optional[Tuple[str, str]]:
     """Decode and validate a refresh token.
-    
-    Args:
-        token: The encoded JWT refresh token.
-        
+
     Returns:
-        Optional[str]: The user ID if valid, None otherwise.
+        Optional[Tuple[str, str]]: (user_id, jti) if valid, None otherwise.
 
     """
     return _decode_token(token, "refresh")

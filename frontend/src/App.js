@@ -28,6 +28,7 @@ import {
 
 import {
   addExpense as apiAddExpense,
+  getBudgets,
   getCategoryBreakdown,
   getDailyTotals,
   getMonthlyTotals,
@@ -36,24 +37,12 @@ import {
   sendVoiceCommand as apiSendVoiceCommand,
 } from "./api";
 import ConfirmDialog from "./components/ConfirmDialog";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
 const RECENT_LIMIT = 12;
-const BUDGET_GUESSES = {
-  food: 10000,
-  transport: 4000,
-  entertainment: 3000,
-  shopping: 5000,
-  utilities: 5000,
-  health: 3000,
-  personal: 2000,
-  gifts: 2000,
-  savings: 6000,
-  uncategorized: 2000,
-  other: 2500,
-};
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 
@@ -733,6 +722,7 @@ const VoiceFinanceDashboard = ({
   const [voiceConfirm, setVoiceConfirm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [budgetWarning, setBudgetWarning] = useState(null);
+  const [budgetLimits, setBudgetLimits] = useState({});
   const [preferenceSaving, setPreferenceSaving] = useState(false);
   const recognitionRef = useRef(null);
   const toastTimerRef = useRef(null);
@@ -755,12 +745,14 @@ const VoiceFinanceDashboard = ({
         categoryResult,
         dailyResult,
         monthlyResult,
+        budgetsResult,
       ] = await Promise.allSettled([
         getSummary(),
         getRecent(RECENT_LIMIT),
         getCategoryBreakdown(),
         getDailyTotals(7),
         getMonthlyTotals(6),
+        getBudgets(),
       ]);
 
       let loadError = null;
@@ -809,6 +801,12 @@ const VoiceFinanceDashboard = ({
           ? monthlyResult.value?.items || monthlyResult.value?.data || []
           : [],
       );
+
+      if (budgetsResult.status === "fulfilled") {
+        setBudgetLimits(budgetsResult.value || {});
+      } else {
+        setBudgetLimits({});
+      }
 
       if (loadError) setError(loadError);
     } catch (err) {
@@ -1154,7 +1152,7 @@ const VoiceFinanceDashboard = ({
   const categoryData = useMemo(
     () =>
       categoryTotals.map((item) => {
-        const budget = BUDGET_GUESSES[item.category] ?? 4000;
+        const budget = budgetLimits[item.category]?.limit ?? 0;
         const percentage = budget
           ? Math.round((item.amount / budget) * 100)
           : 0;
@@ -1165,7 +1163,7 @@ const VoiceFinanceDashboard = ({
           percentage,
         };
       }),
-    [categoryTotals],
+    [categoryTotals, budgetLimits],
   );
 
   /* ── Render ───────────────────────────────────────────────────────────── */
@@ -1359,59 +1357,62 @@ const VoiceFinanceDashboard = ({
 
         {/* ── Charts ── */}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {/* Category pie */}
-          <div className="app-card p-4 border border-blue-200">
-            <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
-              <PieChart className="w-4 h-4" /> Category Distribution
-            </h3>
-            <CategoryPie data={categorySpending} />
-          </div>
-
-          {/* Daily bar */}
-          <div className="app-card p-4 border border-blue-200">
-            <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4" /> Last 7 Days
-            </h3>
-            <ResponsiveBarChart
-              data={dailySpending}
-              maxVal={null}
-              labelKey="day"
-              overBudgetFn={(d) => d.amount > 1500}
-              colorFn={(i) => "bg-blue-600"}
-            />
-            <div className="mt-2 flex gap-3 text-xs">
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded bg-blue-600 inline-block" />
-                Normal
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded bg-red-500 inline-block" />
-                Over budget
-              </span>
+          <ErrorBoundary fallback="Chart failed to load.">
+            <div className="app-card p-4 border border-blue-200">
+              <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
+                <PieChart className="w-4 h-4" /> Category Distribution
+              </h3>
+              <CategoryPie data={categorySpending} />
             </div>
-          </div>
+          </ErrorBoundary>
 
-          {/* Monthly bar */}
-          <div className="app-card p-4 border border-blue-200 sm:col-span-2 xl:col-span-1">
-            <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4" /> 6-Month Trend
-            </h3>
-            {monthlyTrend.length > 0 ? (
+          <ErrorBoundary fallback="Chart failed to load.">
+            <div className="app-card p-4 border border-blue-200">
+              <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" /> Last 7 Days
+              </h3>
               <ResponsiveBarChart
-                data={monthlyTrend}
-                labelKey="label"
-                colorFn={() => "bg-blue-500"}
+                data={dailySpending}
+                maxVal={null}
+                labelKey="day"
+                overBudgetFn={(d) => d.amount > 1500}
+                colorFn={(i) => "bg-blue-600"}
               />
-            ) : (
-              <p className="text-blue-700 text-sm py-4">
-                Monthly totals will appear once expenses are logged.
-              </p>
-            )}
-          </div>
+              <div className="mt-2 flex gap-3 text-xs">
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded bg-blue-600 inline-block" />
+                  Normal
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded bg-red-500 inline-block" />
+                  Over budget
+                </span>
+              </div>
+            </div>
+          </ErrorBoundary>
+
+          <ErrorBoundary fallback="Chart failed to load.">
+            <div className="app-card p-4 border border-blue-200 sm:col-span-2 xl:col-span-1">
+              <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" /> 6-Month Trend
+              </h3>
+              {monthlyTrend.length > 0 ? (
+                <ResponsiveBarChart
+                  data={monthlyTrend}
+                  labelKey="label"
+                  colorFn={() => "bg-blue-500"}
+                />
+              ) : (
+                <p className="text-blue-700 text-sm py-4">
+                  Monthly totals will appear once expenses are logged.
+                </p>
+              )}
+            </div>
+          </ErrorBoundary>
         </div>
 
-        {/* ── Recent Expenses ── */}
-        <div className="app-card p-4 border border-blue-200">
+        <ErrorBoundary fallback="Recent expenses failed to load.">
+          <div className="app-card p-4 border border-blue-200">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-base font-bold text-blue-900">
               Recent Expenses
@@ -1515,6 +1516,7 @@ const VoiceFinanceDashboard = ({
             )}
           </div>
         </div>
+        </ErrorBoundary>
 
         {/* ── Add Expense ── */}
         <div className="app-card p-4 border border-blue-200">
@@ -1593,11 +1595,17 @@ const VoiceFinanceDashboard = ({
                       {cat.category}
                     </span>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-blue-600 text-xs hidden sm:inline">
-                        {formatINR(cat.total)} / {formatINR(cat.budget)}
-                      </span>
-                      <span
-                        className={`font-bold text-xs px-2 py-0.5 rounded-full
+                      {cat.budget === 0 ? (
+                        <span className="text-blue-500 text-xs font-medium">
+                          No budget set
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-blue-600 text-xs hidden sm:inline">
+                            {formatINR(cat.total)} / {formatINR(cat.budget)}
+                          </span>
+                          <span
+                            className={`font-bold text-xs px-2 py-0.5 rounded-full
                         ${
                           cat.percentage > 100
                             ? "bg-red-100 text-red-700"
@@ -1605,22 +1613,31 @@ const VoiceFinanceDashboard = ({
                               ? "bg-amber-100 text-amber-700"
                               : "bg-emerald-100 text-emerald-700"
                         }`}
-                      >
-                        {Math.round(cat.percentage)}%
-                      </span>
+                          >
+                            {Math.round(cat.percentage)}%
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
-                  {/* Mobile: show spend/budget below the bar */}
-                  <p className="text-xs text-blue-500 sm:hidden">
-                    {formatINR(cat.total)} of {formatINR(cat.budget)}
-                  </p>
-                  <div className="relative h-2.5 bg-blue-100 rounded-full overflow-hidden">
-                    <div
-                      className={`absolute left-0 top-0 h-full rounded-full transition-all
+                  {cat.budget === 0 ? (
+                    <p className="text-xs text-blue-500 sm:hidden">
+                      {formatINR(cat.total)} spent · No budget set
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-blue-500 sm:hidden">
+                        {formatINR(cat.total)} of {formatINR(cat.budget)}
+                      </p>
+                      <div className="relative h-2.5 bg-blue-100 rounded-full overflow-hidden">
+                        <div
+                          className={`absolute left-0 top-0 h-full rounded-full transition-all
                         ${cat.percentage > 100 ? "bg-red-500" : cat.percentage > 80 ? "bg-amber-400" : "bg-emerald-500"}`}
-                      style={{ width: `${Math.min(cat.percentage, 100)}%` }}
-                    />
-                  </div>
+                          style={{ width: `${Math.min(cat.percentage, 100)}%` }}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

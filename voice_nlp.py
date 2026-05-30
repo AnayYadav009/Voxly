@@ -3,16 +3,20 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
-from groq import Groq
-
 from config import GROQ_API_KEY, GROQ_MODEL
 
-_groq_client: Optional[Groq] = None
+_groq_client = None
 
 
 def _get_client() -> Groq:
     global _groq_client
     if _groq_client is None:
+        try:
+            from groq import Groq
+        except Exception as exc:
+            raise RuntimeError(
+                "The 'groq' package is not installed. Install it or set GROQ_API_KEY only in environments that have it."
+            ) from exc
         if not GROQ_API_KEY:
             raise RuntimeError(
                 "GROQ_API_KEY is not set. Add it to your .env file."

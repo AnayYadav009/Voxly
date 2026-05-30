@@ -26,44 +26,44 @@ class TestSafeLimit:
     """Pure unit tests for _safe_limit. No fixtures needed."""
 
     def test_returns_default_on_none(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit(None) == 5
 
     def test_returns_default_on_empty_string(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit("") == 5
 
     def test_returns_default_on_non_numeric(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit("abc") == 5
         assert _safe_limit("1.5x") == 5
 
     def test_clamps_below_minimum(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit("0") == 1
         assert _safe_limit("-10") == 1
 
     def test_clamps_above_maximum(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit("500") == 50
         assert _safe_limit("9999") == 50
 
     def test_accepts_valid_int_string(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit("7") == 7
         assert _safe_limit("1") == 1
         assert _safe_limit("50") == 50
 
     def test_accepts_integer_directly(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit(10) == 10
 
     def test_custom_default(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit(None, default=12) == 12
 
     def test_custom_bounds(self):
-        from app import _safe_limit
+        from services.dashboard import _safe_limit
         assert _safe_limit("100", minimum=1, maximum=200) == 100
         assert _safe_limit("0", minimum=5, maximum=200) == 5
 
@@ -81,7 +81,7 @@ import visual_module
 @pytest.fixture(autouse=True)
 def _disable_rate_limits():
     """Ensure the Flask-Limiter does not interfere with test requests."""
-    from app import limiter
+    from extensions import limiter
     limiter.enabled = False
     yield
     limiter.enabled = True

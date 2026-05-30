@@ -7,26 +7,24 @@ from flask import Blueprint, request, jsonify, make_response, g, Response
 # from app.py
 from app import (
     COMMAND_LOGGING_ENABLED,
-    DATE_FORMAT,
     VOICE_HELP_TEXT,
-    _build_chart_series,
     _require_authenticated_user,
     _unauthorized_response,
-    _sanitize_category,
-    _build_dashboard_context,
+    _should_log_commands,
+    _user_preferences_payload,
+)
+from extensions import limiter
+from services.dashboard import (
+    _build_chart_series,
     _collect_budget_lines,
     _find_budget_status,
     _format_budget_status_line,
     _humanize_category_name,
-    _refresh_dashboard,
     _safe_limit,
-    _serialize_category_breakdown,
     _serialize_budget_status,
     _summarize_chart_series,
-    _should_log_commands,
-    _user_preferences_payload,
-    limiter
 )
+from services.validation import sanitize_category, validate_expense
 from database import (
     add_expense, create_connection, update_expense, get_all_expenses,
     get_cached_insight, save_insight, log_command_event, update_user_log_opt_in,
@@ -102,7 +100,7 @@ def api_voice_command():
         return jsonify(response)
 
     if action == "repeat":
-        response["reply"] = "Repeat is not supported in the web interface. Please say your command again."
+        response["reply"] = "The 'repeat' command is not supported in the web API. Please re-send your original command."
         return jsonify(response)
 
     if action == "exit":
@@ -111,9 +109,13 @@ def api_voice_command():
 
     if action == "add":
         amount = parsed.get("amount")
-        category = _sanitize_category(parsed.get("category") or "uncategorized")
+        category = sanitize_category(parsed.get("category") or "uncategorized")
         if amount is None or float(amount) <= 0:
             response["reply"] = "Please include a valid amount to add an expense."
+            return jsonify(response), 400
+        is_valid, error_message = validate_expense(float(amount), category)
+        if not is_valid:
+            response["reply"] = error_message
             return jsonify(response), 400
         try:
             expense_id = add_expense(
@@ -124,7 +126,6 @@ def api_voice_command():
                 user_id=user_id,
             )
 
-            # Handle multi-item commands parsed by Groq
             extra_expenses = parsed.get("_additional_expenses") or []
             extra_ids = []
             for extra in extra_expenses:
@@ -140,6 +141,9 @@ def api_voice_command():
                 except Exception as exc:
                     log_error("Failed to add extra expense from multi-item command: %s", exc)
 
+            reply = f"Added ₹{float(amount):.2f} to {category}."
+            if extra_ids:
+                reply += f" Also recorded {len(extra_ids)} additional item(s)."
             response["reply"] = reply
             response["expense_id"] = expense_id
             response["reload"] = True

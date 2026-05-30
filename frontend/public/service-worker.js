@@ -1,5 +1,6 @@
 /* eslint-disable no-restricted-globals */
 const CACHE_NAME = 'voxly-shell-v2';
+const API_CACHE_TTL_MS = 60 * 1000;
 const DB_NAME = 'voxly-offline';
 const DB_VERSION = 1;
 const STORE_NAME = 'pending_expenses';
@@ -154,9 +155,48 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API requests: network-first with no caching
+  // API requests: network-first with cache fallback and TTL
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(request));
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              const headers = new Headers(clone.headers);
+              headers.append('sw-cached-at', Date.now().toString());
+              clone.blob().then((body) => {
+                cache.put(
+                  request,
+                  new Response(body, {
+                    status: clone.status,
+                    statusText: clone.statusText,
+                    headers,
+                  })
+                );
+              });
+            });
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          if (!cached) {
+            return new Response(JSON.stringify({ error: 'offline' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          const cachedAt = Number(cached.headers.get('sw-cached-at') || 0);
+          if (Date.now() - cachedAt > API_CACHE_TTL_MS) {
+            return new Response(JSON.stringify({ error: 'stale_cache' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          return cached;
+        })
+    );
     return;
   }
 

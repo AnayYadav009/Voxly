@@ -1,10 +1,20 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React from 'react';
 import App from './App';
+import * as api from './api';
+import { formatINR } from './utils';
 
-// Mock lucide-react to avoid issues with SVG rendering in JSDOM
 jest.mock('lucide-react', () => ({
   Mic: () => <div data-testid="mic-icon" />,
+  MicOff: () => <div data-testid="mic-off-icon" />,
+  Menu: () => <div data-testid="menu-icon" />,
+  User: () => <div data-testid="user-icon" />,
+  LogOut: () => <div />,
+  Settings: () => <div />,
+  AlertCircle: () => <div />,
+  CheckCircle: () => <div />,
+  Info: () => <div />,
   ChevronDown: () => <div />,
   ChevronUp: () => <div />,
   TrendingUp: () => <div />,
@@ -13,35 +23,11 @@ jest.mock('lucide-react', () => ({
   PieChart: () => <div />,
   BarChart3: () => <div />,
   Plus: () => <div />,
+  X: () => <div />,
 }));
 
-// Mock the AuthContext
-jest.mock('./context/AuthContext', () => ({
-  useAuth: () => ({
-    user: { email: 'test@example.com', display_name: 'Test User' },
-    initializing: false,
-    preferences: { log_opt_in: false },
-    logout: jest.fn(),
-    setLoggingPreference: jest.fn(),
-  }),
-  AuthProvider: ({ children }) => <div data-testid="auth-provider">{children}</div>,
-}));
+jest.mock('./api');
 
-// Mock the API
-jest.mock('./api', () => ({
-  getSummary: jest.fn(() => Promise.resolve({ total_today: 0, weekly_summary: '', monthly_summary: '', category_totals: [] })),
-  getRecent: jest.fn(() => Promise.resolve([])),
-  getCategoryBreakdown: jest.fn(() => Promise.resolve([])),
-  getDailyTotals: jest.fn(() => Promise.resolve([])),
-  getMonthlyTotals: jest.fn(() => Promise.resolve([])),
-  getBudgets: jest.fn(() => Promise.resolve({})),
-  addExpense: jest.fn(() => Promise.resolve({ message: 'Added.' })),
-  updateExpense: jest.fn(() => Promise.resolve({ message: 'Updated.' })),
-  sendVoiceCommand: jest.fn(() => Promise.resolve({ action: 'unknown', reply: 'test' })),
-  onAuthFailure: jest.fn(() => () => {}),
-}));
-
-// Mock window.SpeechRecognition
 function MockSpeechRecognition() {
   this.start = jest.fn();
   this.stop = jest.fn();
@@ -52,23 +38,66 @@ function MockSpeechRecognition() {
 window.SpeechRecognition = MockSpeechRecognition;
 window.webkitSpeechRecognition = MockSpeechRecognition;
 
-// Mock window.speechSynthesis
 window.speechSynthesis = {
   speak: jest.fn(),
   cancel: jest.fn(),
   getVoices: jest.fn(() => []),
 };
 
+beforeEach(() => {
+  api.fetchCurrentUser.mockResolvedValue({
+    user: { id: '1', email: 'a@b.com', display_name: 'Test' },
+  });
+  api.getStoredTokens.mockReturnValue({ accessToken: 'fake-token', refreshToken: 'fake-refresh' });
+  api.getPreferences.mockResolvedValue({ preferences: { log_opt_in: false } });
+  api.getSummary.mockResolvedValue({
+    total_today: 0,
+    weekly_summary: '',
+    monthly_summary: '',
+    category_totals: [],
+    budget_alerts: [],
+  });
+  api.getRecent.mockResolvedValue([]);
+  api.getCategoryBreakdown.mockResolvedValue({ items: [] });
+  api.getDailyTotals.mockResolvedValue({ items: [] });
+  api.getMonthlyTotals.mockResolvedValue({ items: [] });
+  api.getBudgets.mockResolvedValue({});
+  api.addExpense.mockResolvedValue({ message: 'Added.' });
+  api.sendVoiceCommand.mockResolvedValue({ action: 'unknown', reply: 'test' });
+  api.onAuthFailure.mockReturnValue(() => {});
+  api.loginUser.mockResolvedValue({ user: { email: 'a@b.com' } });
+  api.registerUser.mockResolvedValue({ user: { email: 'a@b.com' } });
+  api.logoutUser.mockResolvedValue({});
+  api.updatePreferences.mockResolvedValue({ preferences: { log_opt_in: false } });
+});
+
 describe('Voxly Dashboard', () => {
-  test('renders the main header', async () => {
+  test('renders dashboard when authenticated', async () => {
     render(<App />);
-    const headerElement = await screen.findByText(/Voice Finance Tracker/i);
-    expect(headerElement).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText(/Voice Finance Tracker/i).length).toBeGreaterThan(0);
+    });
   });
 
-  test('renders the voice button', async () => {
+  test('shows auth screen when no token', async () => {
+    api.getStoredTokens.mockReturnValue({ accessToken: null, refreshToken: null });
     render(<App />);
-    const micButton = await screen.findByTestId('mic-icon');
-    expect(micButton).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Sign in/i)).toBeInTheDocument();
+    });
+  });
+
+  test('add expense button does not submit with no amount', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /Add Expense/i })).toBeInTheDocument();
+    });
+    const btn = screen.getByRole('button', { name: /^Add$/i });
+    await userEvent.click(btn);
+    expect(api.addExpense).not.toHaveBeenCalled();
+  });
+
+  test('formatINR formats Indian rupee correctly', () => {
+    expect(formatINR(100000)).toBe('₹1,00,000.00');
   });
 });

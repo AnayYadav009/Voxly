@@ -1,30 +1,33 @@
-import os
+import io
+import csv
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
-from flask import Blueprint, request, jsonify, make_response, g, Response
+from flask import Blueprint, request, jsonify, Response
 
-# from app.py
 from app import (
     _require_authenticated_user,
     _unauthorized_response,
-    _sanitize_category,
+    _should_log_commands,
+)
+from extensions import limiter
+from services.dashboard import (
     _build_dashboard_context,
     _safe_limit,
     _serialize_category_breakdown,
     _serialize_daily_totals,
-    _should_log_commands,
-    limiter
 )
+from services.validation import sanitize_category, validate_expense
 from database import (
-    add_expense, create_connection, update_expense, get_all_expenses,
-    get_cached_insight, save_insight, log_command_event, update_user_log_opt_in
+    add_expense,
+    get_all_expenses,
+    get_cached_insight,
+    save_insight,
+    log_command_event,
 )
 from budget_module import set_budget_limit, get_budget_limits
-from summary_module import get_monthly_summary_text, get_weekly_summary_text, get_monthly_total
-from visual_module import generate_all_charts, get_category_breakdown, get_monthly_totals_by_month, get_recent_daily_totals
+from visual_module import get_monthly_totals_by_month
 from logger import log_error, log_info
 from insight_module import generate_insight
-from voice_nlp import parse_expense
 
 expenses_bp = Blueprint("expenses", __name__, url_prefix="/api")
 
@@ -58,7 +61,7 @@ def api_summary():
     if not user:
         return _unauthorized_response()
     context = _build_dashboard_context(user_id=user["id"])
-    raw_totals = context["category_totals"]          # List[Tuple[str, float]]
+    raw_totals = context["category_totals"]
     category_totals = [
         {"category": cat, "total": total}
         for cat, total in raw_totals
@@ -68,7 +71,7 @@ def api_summary():
         monthly_total=context["monthly_total"],
         weekly_summary=context["weekly_summary"],
         monthly_summary=context["monthly_summary"],
-        category_totals=category_totals,             # now a list of objects
+        category_totals=category_totals,
         budget_alerts=context["budget_alerts"],
     )
 
@@ -118,12 +121,16 @@ def api_add():
     data = request.get_json(silent=True) or {}
     try:
         amount = float(data.get("amount", 0))
-        category = _sanitize_category(data.get("category", ""))
+        category = sanitize_category(data.get("category", ""))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid amount or category."}), 400
 
     if amount <= 0 or not category:
         return jsonify({"error": "Amount must be positive and category required."}), 400
+
+    is_valid, error_message = validate_expense(amount, category)
+    if not is_valid:
+        return jsonify({"error": error_message}), 400
 
     try:
         expense_id = add_expense(amount, category, user_id=user["id"])
@@ -173,13 +180,10 @@ def api_export():
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
-    from database import get_all_expenses
-    import csv
-    import io
     fmt = request.args.get("format", "csv").lower()
     if fmt != "csv":
         return jsonify({"error": "Only format=csv is supported."}), 400
-    rows = get_all_expenses(user_id=user["id"])
+    rows = get_all_expenses(user_id=user["id"], limit=10000)
     output = io.StringIO()
     writer = csv.DictWriter(
         output,
@@ -188,7 +192,6 @@ def api_export():
     )
     writer.writeheader()
     writer.writerows(rows)
-    from flask import Response
     return Response(
         output.getvalue(),
         mimetype="text/csv",
@@ -215,7 +218,6 @@ def api_forecast():
 
     user_id = user["id"]
 
-    # Fetch last 6 complete months + current partial month
     df = get_monthly_totals_by_month(months=7, user_id=user_id)
 
     if df.empty or len(df) < 2:
@@ -231,7 +233,6 @@ def api_forecast():
     today = date.today()
     current_month_key = today.strftime("%Y-%m")
 
-    # Separate complete months from the current partial month
     complete = df[df["month"] != current_month_key].copy()
     current_rows = df[df["month"] == current_month_key]
     current_spent = float(current_rows["total"].iloc[0]) if not current_rows.empty else 0.0
@@ -251,16 +252,14 @@ def api_forecast():
             "message": "Not enough complete months for a forecast.",
         })
 
-    # Regression over complete months
     x = np.arange(len(complete), dtype=float)
     y = complete["total"].astype(float).values
 
-    coeffs = np.polyfit(x, y, 1)        # [slope, intercept]
+    coeffs = np.polyfit(x, y, 1)
     slope = float(coeffs[0])
     next_x = float(len(complete))
     trend_prediction = float(np.polyval(coeffs, next_x))
 
-    # R² for confidence
     y_mean = float(np.mean(y))
     ss_tot = float(np.sum((y - y_mean) ** 2))
     ss_res = float(np.sum((y - np.polyval(coeffs, x)) ** 2))
@@ -273,17 +272,14 @@ def api_forecast():
     else:
         confidence = "low"
 
-    # Adjust projection for how far through current month we are
     import calendar
     days_in_month = calendar.monthrange(today.year, today.month)[1]
     days_elapsed = today.day
     days_remaining = days_in_month - days_elapsed
 
-    # Daily run rate this month (if we have data) vs regression prediction
     if current_spent > 0 and days_elapsed > 0:
         daily_rate = current_spent / days_elapsed
         run_rate_projection = current_spent + (daily_rate * days_remaining)
-        # Blend: 60% run rate (more responsive), 40% regression (smoother)
         projected_total = round(0.6 * run_rate_projection + 0.4 * trend_prediction, 2)
     else:
         projected_total = round(trend_prediction, 2)
@@ -337,7 +333,6 @@ def api_insight():
         if cached:
             return jsonify({"insight": cached, "cached": True})
 
-    # Generate fresh insight
     try:
         daily_data = _serialize_daily_totals(7, user_id=user_id)["items"]
         cat_data = _serialize_category_breakdown(user_id=user_id)["items"]

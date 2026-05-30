@@ -42,15 +42,20 @@ except OSError:
     pass
 
 # Use a rotating file handler to keep logs manageable
-file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
-file_handler.setFormatter(formatter)
+file_handler_enabled = os.environ.get("VOXLY_DISABLE_FILE_LOG", "false").lower() not in {"1", "true", "yes"}
+
+file_handler = None
+if file_handler_enabled:
+    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    file_handler.setFormatter(formatter)
 
 stream_handler = Utf8StreamHandler()
 stream_handler.setFormatter(formatter)
 
 # avoid duplicate handlers on reload
 if not logger.handlers:
-    logger.addHandler(file_handler)
+    if file_handler is not None:
+        logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
 

@@ -56,11 +56,9 @@ def get_monthly_total(
     now = datetime.now(timezone.utc)
     year = year or now.year
     month = month or now.month
-    start = datetime(year, month, 1)
-    if month == 12:
-        end = datetime(year + 1, 1, 1)
-    else:
-        end = datetime(year, month + 1, 1)
+    from utils.dates import month_range
+
+    start, end = month_range(year, month)
     query = "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date >= ? AND date < ?"
     params: List[str] = [start.strftime(DATE_FORMAT), end.strftime(DATE_FORMAT)]
     if user_id:
@@ -205,11 +203,9 @@ def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
 
     """
     now = datetime.now(timezone.utc)
-    start = datetime(now.year, now.month, 1)
-    if now.month == 12:
-        next_month = datetime(now.year + 1, 1, 1)
-    else:
-        next_month = datetime(now.year, now.month + 1, 1)
+    from utils.dates import month_range
+
+    start, next_month = month_range(now.year, now.month)
 
     start_str = start.strftime(DATE_FORMAT)
     end_str = next_month.strftime(DATE_FORMAT)

@@ -25,7 +25,6 @@ LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 DATE_FORMAT = "%Y-%m-%d"
 
-_JWT_SECRET_DEFAULT = "dev-secret-change-me"
 # --- Turso (cloud SQLite) — set both in production, leave blank for local dev ---
 TURSO_URL   = os.environ.get("TURSO_URL", "")
 TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "")
@@ -39,9 +38,24 @@ _ALLOWED_ORIGINS_RAW = (
 )
 # --- Rate limiting: swap to redis:// in production for distributed deployments ---
 RATE_LIMIT_STORAGE_URI = os.environ.get("VOXLY_RATE_LIMIT_STORAGE_URI", "memory://")
-JWT_SECRET = os.environ.get("VOXLY_JWT_SECRET")
-if not JWT_SECRET:
-    raise RuntimeError("VOXLY_JWT_SECRET must be set in production")
+_raw_jwt_secret = os.environ.get("VOXLY_JWT_SECRET", "")
+_is_dev = os.environ.get("FLASK_ENV", "production") == "development"
+
+if not _raw_jwt_secret:
+    if _is_dev:
+        _raw_jwt_secret = "dev-secret-change-me"
+        warnings.warn(
+            "VOXLY_JWT_SECRET is not set. Using an insecure default. "
+            "Set this variable before deploying.",
+            stacklevel=2,
+        )
+    else:
+        raise RuntimeError(
+            "VOXLY_JWT_SECRET environment variable must be set in production. "
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
+
+JWT_SECRET: str = _raw_jwt_secret
 JWT_ALGORITHM = os.environ.get("VOXLY_JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRES_MINUTES = int(os.environ.get("VOXLY_JWT_EXPIRES_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRES_DAYS = int(os.environ.get("VOXLY_JWT_REFRESH_DAYS", "7"))

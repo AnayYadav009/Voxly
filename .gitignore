@@ -3,56 +3,18 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-env/
-venv/
-ENV/
-.env
-*.env
-build/
-dist/
-eggs/
 *.egg-info/
-pip-wheel-metadata/
-wheelhouse/
-
-# Virtual environment
-/venv/
-
-# Pytest cache
-.pytest_cache/
-
-# mypy
-.mypy_cache/
-
-# Logs
-logs/
-*.log
-
-# Editor directories
-.vscode/
-.idea/
-
-# macOS
-.DS_Store
-
-# Node
-/frontend/node_modules/
-/frontend/build/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# OS generated files
-Thumbs.db
-desktop.ini
-# Python Caching
-__pycache__/
-*.pyc
 
 # Environment Variables
 .env
 .env.*
 !.env.example
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
 
 # Database
 *.db
@@ -65,25 +27,19 @@ auth
 auth-wal
 auth-shm
 
-# Virtual environments
-venv/
-.venv/
-
 # Logs
 logs/
+*.log
 
 # Generated Charts/Images
 static/charts/*.png
 
-# Frontend build artifacts
-frontend/build/
-frontend/coverage/
-
-# Frontend dependencies
-frontend/node_modules/
-
-# VS Code workspace settings (optional)
-.vscode/
+# Python packaging / build
+build/
+dist/
+eggs/
+pip-wheel-metadata/
+wheelhouse/
 
 # Pytest, ruff, and coverage
 .pytest_cache/
@@ -94,16 +50,22 @@ frontend/node_modules/
 coverage.xml
 htmlcov/
 
-# Editor / OS files
-.DS_Store
-Thumbs.db
-
-# Python packaging / caches
+# mypy
 .mypy_cache/
-pip-wheel-metadata/
-*.egg-info/
 
-# node/npm logs
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

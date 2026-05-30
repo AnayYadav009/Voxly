@@ -101,6 +101,12 @@ CREATE TABLE IF NOT EXISTS insights (
 );
 
 CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+    jti TEXT PRIMARY KEY,
+    revoked_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_revoked_tokens_jti ON revoked_tokens(jti);
 """
 
 def _current_timestamp() -> str:
@@ -398,6 +404,54 @@ def update_last_logout(user_id: str) -> None:
     except sqlite3.Error as exc:
         log_error("Failed to update last_logout_at: %s", exc)
         raise
+
+
+def revoke_token(jti: str) -> None:
+    """Record a JWT ID as revoked."""
+    if not jti:
+        return
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO revoked_tokens (jti, revoked_at) VALUES (?, ?)",
+                (jti, _current_timestamp()),
+            )
+            conn.commit()
+    except sqlite3.Error as exc:
+        log_error("Failed to revoke token: %s", exc)
+
+
+def is_token_revoked(jti: str) -> bool:
+    """Return True if the JWT ID has been revoked."""
+    if not jti:
+        return False
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                "SELECT 1 FROM revoked_tokens WHERE jti = ?",
+                (jti,),
+            )
+            return cur.fetchone() is not None
+    except sqlite3.Error as exc:
+        log_error("Failed to check token revocation: %s", exc)
+        return False
+
+
+def purge_expired_revocations(older_than_minutes: int = 120) -> None:
+    """Delete revoked token records older than the given TTL."""
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "DELETE FROM revoked_tokens WHERE revoked_at < ?",
+                (cutoff,),
+            )
+            conn.commit()
+    except sqlite3.Error as exc:
+        log_error("Failed to purge expired revocations: %s", exc)
+
 
 def touch_user_timestamp(user_id: str) -> None:
     """Touch user timestamp."""
@@ -736,11 +790,10 @@ def get_monthly_summary(
     now = datetime.now(timezone.utc)
     year = year or now.year
     month = month or now.month
-    start = datetime(year, month, 1)
-    if month == 12:
-        end = datetime(year + 1, 1, 1) - timedelta(days=1)
-    else:
-        end = datetime(year, month + 1, 1) - timedelta(days=1)
+    from utils.dates import month_range
+
+    start, next_month = month_range(year, month)
+    end = next_month - timedelta(days=1)
     try:
         with get_db() as conn:
             sql = (
@@ -775,11 +828,9 @@ def get_monthly_totals_by_category(
     now = datetime.now(timezone.utc)
     year = year or now.year
     month = month or now.month
-    start = datetime(year, month, 1)
-    if month == 12:
-        end = datetime(year + 1, 1, 1)
-    else:
-        end = datetime(year, month + 1, 1)
+    from utils.dates import month_range
+
+    start, end = month_range(year, month)
     try:
         with get_db() as conn:
             sql = (
@@ -904,7 +955,11 @@ def get_recurring_expenses(
     results.sort(key=lambda r: (order[r["confidence"]], r["next_expected_date"]))
     return results
 
-def get_all_expenses(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_all_expenses(
+    user_id: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
     """Get all expenses."""
     try:
         with get_db() as conn:
@@ -914,10 +969,11 @@ def get_all_expenses(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
                 FROM expenses
                 {where}
                 ORDER BY date DESC, time DESC, id DESC
+                LIMIT ? OFFSET ?
                 """
             )
             where_clause = "WHERE user_id = ?" if user_id else ""
-            params: Tuple[Any, ...] = (user_id,) if user_id else ()
+            params: Tuple[Any, ...] = ((user_id, limit, offset) if user_id else (limit, offset))
             cur = conn.execute(sql.format(where=where_clause), params)
             rows = cur.fetchall()
         return [dict(row) for row in rows]
@@ -947,9 +1003,11 @@ def get_dashboard_snapshot(user_id: str, year: int, month: int) -> dict:
     """
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
-    first_of_month = f"{year}-{month:02d}-01"
-    last_of_month = (datetime(year, month, 1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-    last_of_month_str = last_of_month.strftime("%Y-%m-%d")
+    from utils.dates import month_range
+
+    first_of_month_dt, next_month_dt = month_range(year, month)
+    first_of_month = first_of_month_dt.strftime("%Y-%m-%d")
+    last_of_month_str = (next_month_dt - timedelta(days=1)).strftime("%Y-%m-%d")
 
     with get_db() as conn:
         # Today's Total

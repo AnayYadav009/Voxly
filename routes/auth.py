@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 from flask import Blueprint, request, jsonify, make_response, g
 
 from config import ACCESS_TOKEN_EXPIRES_MINUTES, REFRESH_TOKEN_EXPIRES_DAYS
-from database import get_user_by_email, create_user, touch_user_timestamp, get_user_by_id, seed_default_budgets, update_last_logout
+from database import get_user_by_email, create_user, touch_user_timestamp, get_user_by_id, seed_default_budgets, update_last_logout, revoke_token
 from auth import (
     hash_password,
     PasswordPolicyError,
@@ -17,7 +17,7 @@ from logger import log_error
 
 # In order to avoid circular imports if app.py imports us, we can import limiter inside the routes or at the end.
 # However, for decorators, we need it at module level. Let's try importing it.
-from app import limiter
+from extensions import limiter
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -54,7 +54,15 @@ def _auth_success_response(user: Dict[str, Any]):
     refresh_token = create_refresh_token(user["id"])
     touch_user_timestamp(user["id"])
     
-    response = make_response(jsonify({"user": _public_user_payload(user)}))
+    response = make_response(
+        jsonify(
+            {
+                "user": _public_user_payload(user),
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+            }
+        )
+    )
     response.set_cookie(
         "access_token",
         value=access_token,
@@ -76,7 +84,7 @@ def _auth_success_response(user: Dict[str, Any]):
     return response
 
 @auth_bp.route("/register", methods=["POST"])
-@limiter.limit("5 per minute")
+@limiter.limit("5 per minute; 20 per hour")
 def api_auth_register():
     """Handle API auth register."""
     data = request.get_json(silent=True) or {}
@@ -103,7 +111,7 @@ def api_auth_register():
     return _auth_success_response(user)
 
 @auth_bp.route("/login", methods=["POST"])
-@limiter.limit("10 per minute")
+@limiter.limit("10 per minute; 50 per hour")
 def api_auth_login():
     """Handle API auth login."""
     data = request.get_json(silent=True) or {}
@@ -133,6 +141,9 @@ def api_auth_logout():
     user = _require_authenticated_user()
     if not user:
         return _unauthorized_response()
+    jti = getattr(g, "token_jti", None)
+    if jti:
+        revoke_token(jti)
     update_last_logout(user["id"])
     response = make_response(jsonify({"status": "logged_out"}))
     secure_cookie = os.environ.get("FLASK_ENV") == "production"
@@ -150,9 +161,10 @@ def api_auth_refresh():
     )
     if not refresh_token:
         return _unauthorized_response()
-    user_id = decode_refresh_token(refresh_token)
-    if not user_id:
+    result = decode_refresh_token(refresh_token)
+    if not result:
         return _unauthorized_response()
+    user_id, _jti = result
     user = get_user_by_id(user_id)
     if not user:
         return _unauthorized_response()
@@ -160,7 +172,15 @@ def api_auth_refresh():
     new_refresh_token = create_refresh_token(user_id)
     touch_user_timestamp(user_id)
     
-    response = make_response(jsonify({"user": _public_user_payload(user)}))
+    response = make_response(
+        jsonify(
+            {
+                "user": _public_user_payload(user),
+                "access_token": access_token,
+                "refresh_token": new_refresh_token,
+            }
+        )
+    )
     response.set_cookie(
         "access_token",
         value=access_token,

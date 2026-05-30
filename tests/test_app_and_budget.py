@@ -21,7 +21,8 @@ import database  # noqa: E402
 import summary_module  # noqa: E402
 import visual_module  # noqa: E402
 import app as app_module  # noqa: E402
-from app import _safe_limit, app  # noqa: E402
+from services.dashboard import _safe_limit
+from app import app  # noqa: E402
 app.config["TESTING"] = True
 app.config["RATELIMIT_ENABLED"] = False
 from auth import create_access_token  # noqa: E402
@@ -40,7 +41,7 @@ from summary_module import (  # noqa: E402
 @pytest.fixture(autouse=True)
 def bypass_rate_limit():
     """Bypass rate limits by disabling the limiter."""
-    from app import limiter
+    from extensions import limiter
     limiter.enabled = False
 
 @pytest.fixture
@@ -490,14 +491,14 @@ def test_repeat_command_is_stateless(temp_db, auth_headers, mock_parse):
     res = client.post("/api/voice_command", json={"command": "repeat"}, headers=auth_headers)
     assert res.status_code == 200
     payload = res.get_json()
-    assert "say your command again" in payload["reply"].lower()
+    assert "re-send your original command" in payload["reply"].lower()
 
 
 def test_api_summary_includes_monthly_total(temp_db):
     """api_summary must return monthly_total so the frontend card renders correctly."""
     # Testing mode allows unauthenticated access for recent; summary still needs auth
     # so we just verify the _build_dashboard_context helper includes the key
-    from app import _build_dashboard_context
+    from services.dashboard import _build_dashboard_context
     context = _build_dashboard_context(user_id=None)
     assert "monthly_total" in context
     assert isinstance(context["monthly_total"], (int, float))
@@ -505,7 +506,7 @@ def test_api_summary_includes_monthly_total(temp_db):
 
 def test_category_totals_are_objects(temp_db):
     """_build_dashboard_context category_totals should be serialisable as objects."""
-    from app import _build_dashboard_context
+    from services.dashboard import _build_dashboard_context
     context = _build_dashboard_context(user_id=None)
     # get_total_by_category returns List[Tuple[str, float]] — ensure it round-trips to JSON
     import json
