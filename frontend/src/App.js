@@ -7,8 +7,6 @@ import React, {
 } from 'react';
 import {
   Activity,
-  ArrowDownRight,
-  ArrowUpRight,
   BarChart3,
   Bell,
   Calendar,

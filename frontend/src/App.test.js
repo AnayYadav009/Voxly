@@ -109,9 +109,13 @@ describe('Voxly Dashboard', () => {
       expect(screen.getAllByText(/Voxly/i).length).toBeGreaterThan(0);
     });
     
-    // Switch to Expenses tab
-    const expensesTabBtn = screen.getByRole('button', { name: /Expenses/i });
-    await userEvent.click(expensesTabBtn);
+    // Switch to Transactions tab
+    const transactionsTabBtn = screen.getByRole('button', { name: /Transactions/i });
+    await userEvent.click(transactionsTabBtn);
+
+    // Click "Add expense manually" button to reveal the form
+    const revealFormBtn = screen.getByRole('button', { name: /Add expense manually/i });
+    await userEvent.click(revealFormBtn);
 
     let btn;
     await waitFor(() => {
