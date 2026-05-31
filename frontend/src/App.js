@@ -6,28 +6,22 @@ import React, {
   useState,
 } from 'react';
 import {
+  Activity,
+  ArrowDownRight,
+  ArrowUpRight,
+  BarChart3,
+  Bell,
+  Calendar,
+  ChevronRight,
+  LogOut,
   Mic,
   MicOff,
-  TrendingUp,
-  Calendar,
-  Wallet,
   PieChart,
-  BarChart3,
   Plus,
-  Sun,
-  Moon,
-  LogOut,
   Settings,
-  ChevronDown,
-  Activity,
-  Home,
+  TrendingUp,
+  Wallet,
   X,
-  AlertTriangle,
-  CheckCircle,
-  Info,
-  Zap,
-  ArrowUpRight,
-  ArrowDownRight,
 } from 'lucide-react';
 
 import {
@@ -42,138 +36,105 @@ import {
 import ConfirmDialog from './components/ConfirmDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-const RECENT_LIMIT = 12;
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const BUDGET_GUESSES = {
-  food: 10000,
-  transport: 4000,
-  entertainment: 3000,
-  shopping: 5000,
-  utilities: 5000,
-  health: 3000,
-  personal: 2000,
-  gifts: 2000,
-  savings: 6000,
-  uncategorized: 2000,
-  other: 2500,
-};
+const RECENT_LIMIT = 20;
 
 const CATEGORY_COLORS = {
-  food: { light: '#0ea5e9', dark: '#38bdf8' },
-  transport: { light: '#8b5cf6', dark: '#a78bfa' },
-  entertainment: { light: '#f59e0b', dark: '#fbbf24' },
-  shopping: { light: '#ec4899', dark: '#f472b6' },
-  utilities: { light: '#10b981', dark: '#34d399' },
-  health: { light: '#ef4444', dark: '#f87171' },
-  personal: { light: '#6366f1', dark: '#818cf8' },
-  gifts: { light: '#14b8a6', dark: '#2dd4bf' },
-  savings: { light: '#22c55e', dark: '#4ade80' },
-  uncategorized: { light: '#94a3b8', dark: '#cbd5e1' },
-  other: { light: '#64748b', dark: '#94a3b8' },
+  food:          { bg: 'bg-orange-100', dot: 'bg-orange-400',  text: 'text-orange-700',  hex: '#f97316' },
+  transport:     { bg: 'bg-blue-100',   dot: 'bg-blue-400',    text: 'text-blue-700',    hex: '#3b82f6' },
+  entertainment: { bg: 'bg-purple-100', dot: 'bg-purple-400',  text: 'text-purple-700',  hex: '#a855f7' },
+  shopping:      { bg: 'bg-pink-100',   dot: 'bg-pink-400',    text: 'text-pink-700',    hex: '#ec4899' },
+  utilities:     { bg: 'bg-teal-100',   dot: 'bg-teal-400',    text: 'text-teal-700',    hex: '#14b8a6' },
+  health:        { bg: 'bg-green-100',  dot: 'bg-green-400',   text: 'text-green-700',   hex: '#22c55e' },
+  personal:      { bg: 'bg-amber-100',  dot: 'bg-amber-400',   text: 'text-amber-700',   hex: '#f59e0b' },
+  savings:       { bg: 'bg-indigo-100', dot: 'bg-indigo-400',  text: 'text-indigo-700',  hex: '#6366f1' },
+  gifts:         { bg: 'bg-rose-100',   dot: 'bg-rose-400',    text: 'text-rose-700',    hex: '#f43f5e' },
+  uncategorized: { bg: 'bg-slate-100',  dot: 'bg-slate-400',   text: 'text-slate-600',   hex: '#94a3b8' },
+  other:         { bg: 'bg-slate-100',  dot: 'bg-slate-400',   text: 'text-slate-600',   hex: '#94a3b8' },
 };
 
-const getCategoryColor = (category, isDark) => {
-  const key = (category || '').toLowerCase();
-  return (CATEGORY_COLORS[key] || CATEGORY_COLORS.other)[isDark ? 'dark' : 'light'];
+const BUDGET_GUESSES = {
+  food: 10000, transport: 4000, entertainment: 3000,
+  shopping: 5000, utilities: 5000, health: 3000,
+  personal: 2000, gifts: 2000, savings: 6000,
+  uncategorized: 2000, other: 2500,
 };
 
-const formatINR = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return '₹0';
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Number(value));
-};
+const TABS = ['overview', 'transactions', 'budgets', 'settings'];
 
-const formatINRDecimal = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return '₹0.00';
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value));
-};
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const titleCase = (value) =>
-  value
-    ? value.toString().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : '';
+const fmt = (n) =>
+  new Intl.NumberFormat('en-IN', {
+    style: 'currency', currency: 'INR', maximumFractionDigits: 0,
+  }).format(Number(n) || 0);
+
+const titleCase = (s) =>
+  s ? s.toString().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+
+const catStyle = (cat) =>
+  CATEGORY_COLORS[(cat || '').toLowerCase()] || CATEGORY_COLORS.other;
 
 const parseCurrencyValue = (line) => {
   if (!line) return null;
-  const match = line.match(/₹\s*([\d,]+(?:\.\d+)?)/);
-  if (!match) return null;
-  return Number(match[1].replace(/,/g, ''));
+  const m = line.match(/₹\s*([\d,]+(?:\.\d+)?)/);
+  return m ? Number(m[1].replace(/,/g, '')) : null;
 };
 
 const parseCategoryLine = (line) => {
   if (!line) return [];
-  const [, listPart = ''] = line.split(':');
-  return listPart
-    .split(',')
-    .map((item) => {
-      const trimmed = item.trim();
-      if (!trimmed) return null;
-      const match = trimmed.match(/^(.*?)\s*\((?:₹)?([\d,]+(?:\.\d+)?)\)/i);
-      if (!match) return { name: titleCase(trimmed), amount: null };
-      return { name: titleCase(match[1].trim()), amount: Number(match[2].replace(/,/g, '')) };
-    })
-    .filter(Boolean);
+  const [, list = ''] = line.split(':');
+  return list.split(',').map((item) => {
+    const t = item.trim();
+    if (!t) return null;
+    const m = t.match(/^(.*?)\s*\((?:₹)?([\d,]+(?:\.\d+)?)\)/i);
+    if (!m) return { name: titleCase(t), amount: null };
+    return { name: titleCase(m[1].trim()), amount: Number(m[2].replace(/,/g, '')) };
+  }).filter(Boolean);
 };
 
 const parseWeeklySummary = (text) => {
-  const lines =
-    typeof text === 'string'
-      ? text.split(/\n+/).map((l) => l.trim()).filter(Boolean)
-      : [];
-  const totalLine = lines.find((l) => l.toLowerCase().includes('weekly spend'));
-  const avgLine = lines.find((l) => l.toLowerCase().includes('daily average'));
-  const categoriesLine = lines.find((l) => l.toLowerCase().includes('top categories'));
+  const lines = typeof text === 'string'
+    ? text.split(/\n+/).map((l) => l.trim()).filter(Boolean) : [];
   return {
-    total: parseCurrencyValue(totalLine),
-    dailyAverage: parseCurrencyValue(avgLine),
-    topCategories: parseCategoryLine(categoriesLine),
+    total: parseCurrencyValue(lines.find((l) => l.toLowerCase().includes('weekly spend'))),
+    dailyAverage: parseCurrencyValue(lines.find((l) => l.toLowerCase().includes('daily average'))),
+    topCategories: parseCategoryLine(lines.find((l) => l.toLowerCase().includes('top categories'))),
     lines,
   };
 };
 
 const parseMonthlySummary = (text) => {
-  const lines =
-    typeof text === 'string'
-      ? text.split(/\n+/).map((l) => l.trim()).filter(Boolean)
-      : [];
-  const totalLine = lines.find((l) => l.toLowerCase().includes('total'));
-  const categoriesLine = lines.find((l) => l.toLowerCase().includes('leading categories'));
+  const lines = typeof text === 'string'
+    ? text.split(/\n+/).map((l) => l.trim()).filter(Boolean) : [];
   return {
-    total: parseCurrencyValue(totalLine),
-    topCategories: parseCategoryLine(categoriesLine),
+    total: parseCurrencyValue(lines.find((l) => l.toLowerCase().includes('total'))),
+    topCategories: parseCategoryLine(lines.find((l) => l.toLowerCase().includes('leading categories'))),
     lines,
   };
 };
 
 const normalizeCategoryTotals = (raw = []) => {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry, index) => {
-      if (Array.isArray(entry)) {
-        return { key: entry[0] ?? `cat-${index}`, category: (entry[0] || '').toString().toLowerCase(), amount: Number(entry[1]) || 0 };
-      }
-      if (entry && typeof entry === 'object') {
-        const category = (entry.category ?? entry[0] ?? '').toString().toLowerCase();
-        const amount = Number(entry.total ?? entry.amount ?? entry[1] ?? 0) || 0;
-        return { key: entry.id ?? `cat-${index}`, category, amount };
-      }
-      return null;
-    })
-    .filter(Boolean);
+  return raw.map((entry, i) => {
+    if (Array.isArray(entry)) {
+      return { key: `${entry[0]}-${i}`, category: (entry[0] || '').toLowerCase(), amount: Number(entry[1]) || 0 };
+    }
+    if (entry && typeof entry === 'object') {
+      return {
+        key: entry.id ?? `cat-${i}`,
+        category: (entry.category ?? entry[0] ?? '').toString().toLowerCase(),
+        amount: Number(entry.total ?? entry.amount ?? entry[1] ?? 0) || 0,
+      };
+    }
+    return null;
+  }).filter(Boolean);
 };
 
 const mapRecentExpenses = (raw = []) =>
-  raw.map((item, index) => ({
-    id: item.id ?? `expense-${index}`,
+  raw.map((item, i) => ({
+    id: item.id ?? `expense-${i}`,
     date: item.date ?? '',
     time: item.time ?? '',
     amount: Number(item.amount ?? 0) || 0,
@@ -181,391 +142,454 @@ const mapRecentExpenses = (raw = []) =>
     description: item.description ?? '',
   }));
 
-const normalizeCategoryChart = (raw = []) => {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry, index) => {
-      if (!entry) return null;
-      const key = (entry.category ?? entry.name ?? `category-${index}`).toString();
-      const amount = Number(entry.total ?? entry.amount ?? 0) || 0;
-      return { key, category: titleCase(key), amount };
-    })
-    .filter(Boolean);
-};
-
 const normalizeDailyChart = (raw = []) => {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry, index) => {
-      if (!entry) return null;
-      const label = entry.label ?? entry.day ?? `Day ${index + 1}`;
-      const amount = Number(entry.total ?? entry.amount ?? 0) || 0;
-      return { day: label, amount };
-    })
-    .filter(Boolean);
+  return raw.map((entry, i) => {
+    if (!entry) return null;
+    return { day: entry.label ?? entry.day ?? `Day ${i + 1}`, amount: Number(entry.total ?? entry.amount ?? 0) || 0 };
+  }).filter(Boolean);
 };
 
 const normalizeMonthlyChart = (raw = []) => {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry, index) => {
-      if (!entry) return null;
-      const label = entry.label ?? entry.month ?? `Month ${index + 1}`;
-      const amount = Number(entry.total ?? entry.amount ?? 0) || 0;
-      return { label, amount };
-    })
-    .filter(Boolean);
+  return raw.map((entry, i) => {
+    if (!entry) return null;
+    return { label: entry.label ?? entry.month ?? `Month ${i + 1}`, amount: Number(entry.total ?? entry.amount ?? 0) || 0 };
+  }).filter(Boolean);
+};
+
+const normalizeCategoryChart = (raw = []) => {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry, i) => {
+    if (!entry) return null;
+    const key = (entry.category ?? entry.name ?? `cat-${i}`).toString();
+    return { category: key, amount: Number(entry.total ?? entry.amount ?? 0) || 0 };
+  }).filter(Boolean);
 };
 
 const computeDailySpending = (expenses = []) => {
   const today = new Date();
-  const buckets = [];
-  for (let offset = 6; offset >= 0; offset--) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - offset);
-    const key = date.toISOString().slice(0, 10);
-    buckets.push({ key, day: date.toLocaleDateString('en-IN', { weekday: 'short' }), amount: 0 });
-  }
-  const indexByKey = Object.fromEntries(buckets.map((b) => [b.key, b]));
-  expenses.forEach((e) => {
-    const bucket = indexByKey[e.date];
-    if (bucket) bucket.amount += Number(e.amount) || 0;
+  return Array.from({ length: 7 }, (_, offset) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (6 - offset));
+    const key = d.toISOString().slice(0, 10);
+    return {
+      key,
+      day: d.toLocaleDateString('en-IN', { weekday: 'short' }),
+      amount: expenses.filter((e) => e.date === key).reduce((s, e) => s + e.amount, 0),
+    };
   });
-  return buckets.map(({ day, amount }) => ({ day, amount }));
 };
 
-// ─── Theme hook ──────────────────────────────────────────────────────────────
-const useTheme = () => {
-  const [isDark, setIsDark] = useState(() => {
-    const stored = localStorage.getItem('voxly_theme');
-    if (stored) return stored === 'dark';
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
+// ─── Toast ────────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDark);
-    localStorage.setItem('voxly_theme', isDark ? 'dark' : 'light');
-  }, [isDark]);
-
-  return [isDark, () => setIsDark((d) => !d)];
-};
-
-// ─── Stat Card ────────────────────────────────────────────────────────────────
-const StatCard = ({ label, value, sub, icon: Icon, trend, color = 'blue', isDark }) => {
-  const colorMap = {
-    blue: { bg: isDark ? '#1e3a5f' : '#eff6ff', icon: isDark ? '#60a5fa' : '#2563eb', text: isDark ? '#93c5fd' : '#1d4ed8' },
-    green: { bg: isDark ? '#14532d' : '#f0fdf4', icon: isDark ? '#4ade80' : '#16a34a', text: isDark ? '#86efac' : '#15803d' },
-    amber: { bg: isDark ? '#451a03' : '#fffbeb', icon: isDark ? '#fbbf24' : '#d97706', text: isDark ? '#fcd34d' : '#b45309' },
-    purple: { bg: isDark ? '#2e1065' : '#faf5ff', icon: isDark ? '#c084fc' : '#9333ea', text: isDark ? '#d8b4fe' : '#7e22ce' },
+function Toast({ toast, onDismiss }) {
+  if (!toast) return null;
+  const styles = {
+    success: 'bg-emerald-600 text-white',
+    error: 'bg-red-600 text-white',
+    info: 'bg-slate-800 text-white',
   };
-  const c = colorMap[color] || colorMap.blue;
   return (
-    <div style={{
-      background: isDark ? '#1e2433' : '#ffffff',
-      border: `1px solid ${isDark ? '#2d3748' : '#e5e7eb'}`,
-      borderRadius: 12,
-      padding: '16px 20px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 8,
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: isDark ? '#94a3b8' : '#6b7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          {label}
-        </span>
-        <div style={{ background: c.bg, borderRadius: 8, padding: '6px', display: 'flex' }}>
-          <Icon size={16} color={c.icon} />
-        </div>
-      </div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: isDark ? '#f1f5f9' : '#0f172a', lineHeight: 1 }}>
-        {value}
-      </div>
-      {(sub || trend !== undefined) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-          {trend !== undefined && (
-            trend >= 0
-              ? <ArrowUpRight size={12} color="#22c55e" />
-              : <ArrowDownRight size={12} color="#ef4444" />
-          )}
-          <span style={{ color: isDark ? '#64748b' : '#9ca3af' }}>{sub}</span>
-        </div>
-      )}
+    <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg ${styles[toast.type] || styles.info}`}>
+      {toast.message}
+      <button onClick={onDismiss} className="opacity-70 hover:opacity-100 ml-1">
+        <X className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
-};
-
-// ─── Budget Status Badge ──────────────────────────────────────────────────────
-const BudgetBar = ({ category, spent, budget, isDark }) => {
-  const pct = budget ? Math.min((spent / budget) * 100, 100) : 0;
-  const isOver = pct >= 100;
-  const isWarn = pct >= 80 && !isOver;
-  const barColor = isOver ? '#ef4444' : isWarn ? '#f59e0b' : '#22c55e';
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 13, fontWeight: 500, color: isDark ? '#cbd5e1' : '#374151' }}>{titleCase(category)}</span>
-        <span style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#6b7280' }}>
-          {formatINR(spent)} <span style={{ color: isDark ? '#475569' : '#d1d5db' }}>/</span> {formatINR(budget)}
-          <span style={{
-            marginLeft: 6,
-            fontWeight: 600,
-            color: isOver ? '#ef4444' : isWarn ? '#f59e0b' : isDark ? '#4ade80' : '#16a34a',
-          }}>{Math.round(pct)}%</span>
-        </span>
-      </div>
-      <div style={{ height: 6, background: isDark ? '#334155' : '#f1f5f9', borderRadius: 99 }}>
-        <div style={{
-          height: '100%',
-          width: `${pct}%`,
-          background: barColor,
-          borderRadius: 99,
-          transition: 'width 0.6s ease',
-        }} />
-      </div>
-    </div>
-  );
-};
+}
 
 // ─── Alert Banner ─────────────────────────────────────────────────────────────
-const AlertBanner = ({ type = 'info', message, onDismiss, isDark }) => {
-  const styles = {
-    warning: { bg: isDark ? '#451a03' : '#fffbeb', border: isDark ? '#78350f' : '#fde68a', text: isDark ? '#fcd34d' : '#92400e', icon: AlertTriangle },
-    error: { bg: isDark ? '#450a0a' : '#fef2f2', border: isDark ? '#7f1d1d' : '#fecaca', text: isDark ? '#fca5a5' : '#991b1b', icon: AlertTriangle },
-    success: { bg: isDark ? '#052e16' : '#f0fdf4', border: isDark ? '#14532d' : '#bbf7d0', text: isDark ? '#86efac' : '#15803d', icon: CheckCircle },
-    info: { bg: isDark ? '#0c1a2e' : '#eff6ff', border: isDark ? '#1e3a5f' : '#bfdbfe', text: isDark ? '#93c5fd' : '#1d4ed8', icon: Info },
-  };
-  const s = styles[type] || styles.info;
-  const Icon = s.icon;
-  return (
-    <div style={{
-      background: s.bg,
-      border: `1px solid ${s.border}`,
-      borderRadius: 10,
-      padding: '10px 14px',
-      display: 'flex',
-      alignItems: 'flex-start',
-      gap: 10,
-      marginBottom: 8,
-    }}>
-      <Icon size={16} color={s.text} style={{ marginTop: 1, flexShrink: 0 }} />
-      <span style={{ fontSize: 13, color: s.text, flex: 1, lineHeight: 1.5 }}>{message}</span>
-      {onDismiss && (
-        <button onClick={onDismiss} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: s.text, opacity: 0.6, display: 'flex' }}>
-          <X size={14} />
-        </button>
-      )}
-    </div>
-  );
-};
 
-// ─── Voice Button ─────────────────────────────────────────────────────────────
-const VoiceButton = ({ isRecording, voiceProcessing, voiceConfirm, onClick, voiceStatus, isDark }) => {
+function AlertBanner({ alerts, onDismiss }) {
+  if (!alerts || alerts.length === 0) return null;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '32px 0' }}>
-      <div style={{ position: 'relative' }}>
-        {isRecording && (
-          <>
-            <div style={{
-              position: 'absolute', inset: -16,
-              borderRadius: '50%',
-              border: '2px solid rgba(239,68,68,0.4)',
-              animation: 'voicePulse 1.5s ease-out infinite',
-            }} />
-            <div style={{
-              position: 'absolute', inset: -8,
-              borderRadius: '50%',
-              border: '2px solid rgba(239,68,68,0.6)',
-              animation: 'voicePulse 1.5s ease-out infinite 0.3s',
-            }} />
-          </>
-        )}
-        <button
-          onClick={onClick}
-          disabled={voiceProcessing || Boolean(voiceConfirm)}
-          aria-pressed={isRecording}
-          aria-label={isRecording ? 'Stop listening' : 'Start voice command'}
-          style={{
-            width: 80,
-            height: 80,
-            borderRadius: '50%',
-            border: 'none',
-            cursor: voiceProcessing || voiceConfirm ? 'not-allowed' : 'pointer',
-            background: isRecording
-              ? 'linear-gradient(135deg, #ef4444, #dc2626)'
-              : voiceProcessing
-              ? isDark ? '#374151' : '#d1d5db'
-              : 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'transform 0.15s, box-shadow 0.15s',
-            boxShadow: isRecording
-              ? '0 0 0 4px rgba(239,68,68,0.2)'
-              : '0 4px 20px rgba(37,99,235,0.35)',
-          }}
-        >
-          {isRecording ? <MicOff size={32} color="white" /> : <Mic size={32} color="white" />}
-        </button>
+    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex gap-3 items-start">
+      <Bell className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 space-y-0.5">
+        {alerts.slice(0, 3).map((msg, i) => (
+          <p key={i} className="text-xs text-amber-800">{msg}</p>
+        ))}
       </div>
-
-      <div style={{ textAlign: 'center' }}>
-        <p style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: isRecording ? '#ef4444' : isDark ? '#e2e8f0' : '#1e293b',
-          margin: '0 0 4px',
-        }}>
-          {voiceProcessing ? 'Processing…' : isRecording ? 'Listening' : 'Tap to speak'}
-        </p>
-        <p style={{
-          fontSize: 12,
-          color: isDark ? '#64748b' : '#9ca3af',
-          margin: 0,
-          minHeight: 20,
-          maxWidth: 240,
-          textAlign: 'center',
-        }}>
-          {voiceStatus || '"Add 500 to food" · "Weekly summary"'}
-        </p>
-      </div>
-
-      {/* Animated equalizer when recording */}
-      {isRecording && (
-        <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 24 }}>
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} style={{
-              width: 4,
-              background: '#ef4444',
-              borderRadius: 2,
-              animation: `voiceBar${i} 0.8s ease-in-out infinite`,
-            }} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─── Section Card ─────────────────────────────────────────────────────────────
-const SectionCard = ({ title, icon: Icon, children, action, isDark, defaultOpen = false }) => {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div style={{
-      background: isDark ? '#1e2433' : '#ffffff',
-      border: `1px solid ${isDark ? '#2d3748' : '#e5e7eb'}`,
-      borderRadius: 12,
-      overflow: 'hidden',
-    }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          width: '100%',
-          padding: '14px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          borderBottom: open ? `1px solid ${isDark ? '#2d3748' : '#f3f4f6'}` : 'none',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {Icon && <Icon size={16} color={isDark ? '#60a5fa' : '#2563eb'} />}
-          <span style={{ fontSize: 14, fontWeight: 600, color: isDark ? '#e2e8f0' : '#111827' }}>{title}</span>
-          {action && <span style={{ fontSize: 12, color: isDark ? '#64748b' : '#9ca3af' }}>{action}</span>}
-        </div>
-        <ChevronDown
-          size={16}
-          color={isDark ? '#64748b' : '#9ca3af'}
-          style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-        />
+      <button onClick={onDismiss} className="text-amber-400 hover:text-amber-600">
+        <X className="w-4 h-4" />
       </button>
-      {open && <div style={{ padding: '16px 20px' }}>{children}</div>}
     </div>
   );
-};
+}
 
-// ─── Main Dashboard ───────────────────────────────────────────────────────────
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub, icon: Icon, iconBg }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{value}</p>
+          {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
+        </div>
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${iconBg}`}>
+          <Icon className="w-5 h-5 text-white" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Mic Button ───────────────────────────────────────────────────────────────
+
+function MicButton({ isRecording, processing, onToggle, status }) {
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <button
+        onClick={onToggle}
+        disabled={processing}
+        aria-pressed={isRecording}
+        aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+        className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400
+          ${processing ? 'bg-slate-300 cursor-not-allowed' :
+            isRecording ? 'bg-red-500 hover:bg-red-600 shadow-lg shadow-red-200' :
+            'bg-slate-900 hover:bg-slate-700 shadow-lg shadow-slate-200'}`}
+      >
+        {isRecording && (
+          <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-30" />
+        )}
+        {isRecording
+          ? <MicOff className="w-8 h-8 text-white relative z-10" />
+          : <Mic className="w-8 h-8 text-white relative z-10" />}
+      </button>
+      <p className="text-sm font-medium text-slate-500">
+        {processing ? 'Processing…' : isRecording ? 'Tap to stop' : 'Tap to speak'}
+      </p>
+      {status && (
+        <div className="px-3 py-1.5 bg-slate-100 rounded-full text-xs text-slate-600 font-medium text-center max-w-[220px] truncate">
+          {status}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Spark Bar (7-day) ────────────────────────────────────────────────────────
+
+function SparkBar({ data }) {
+  const max = Math.max(...data.map((d) => d.amount), 1);
+  return (
+    <div className="flex items-end gap-1.5 h-16">
+      {data.map((d, i) => {
+        const pct = (d.amount / max) * 100;
+        const isHigh = d.amount > max * 0.75;
+        return (
+          <div key={i} className="flex-1 flex flex-col items-center gap-1 group">
+            <div className="w-full relative" style={{ height: 52 }}>
+              <div
+                className={`absolute bottom-0 w-full rounded-sm transition-all ${isHigh ? 'bg-orange-400' : 'bg-slate-200 group-hover:bg-slate-300'}`}
+                style={{ height: `${Math.max(pct, 4)}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-slate-400">{d.day}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Donut Chart ──────────────────────────────────────────────────────────────
+
+function DonutChart({ data, total }) {
+  if (!data || data.length === 0) {
+    return <p className="text-sm text-slate-400 text-center py-6">Add expenses to see breakdown</p>;
+  }
+  const safeTotal = total || data.reduce((s, d) => s + d.amount, 0) || 1;
+  let angle = -90;
+  const segments = data.map((d) => {
+    const sweep = (d.amount / safeTotal) * 360;
+    const start = angle;
+    angle += sweep;
+    return { ...d, sweep, startAngle: start };
+  });
+
+  const polar = (a, r) => ({
+    x: 50 + r * Math.cos((a * Math.PI) / 180),
+    y: 50 + r * Math.sin((a * Math.PI) / 180),
+  });
+
+  return (
+    <div className="flex items-center gap-5">
+      <svg viewBox="0 0 100 100" className="w-28 h-28 flex-shrink-0">
+        {segments.map((seg, i) => {
+          const color = catStyle(seg.category).hex;
+          const s = polar(seg.startAngle, 38);
+          const e = polar(seg.startAngle + seg.sweep - 0.5, 38);
+          const large = seg.sweep > 180 ? 1 : 0;
+          return (
+            <path
+              key={i}
+              d={`M50 50 L${s.x} ${s.y} A38 38 0 ${large} 1 ${e.x} ${e.y}Z`}
+              fill={color}
+              stroke="white"
+              strokeWidth="1.5"
+            />
+          );
+        })}
+        <circle cx="50" cy="50" r="23" fill="white" />
+        <text x="50" y="46" textAnchor="middle" fill="#94a3b8" fontSize="5.5" fontFamily="system-ui">TOTAL</text>
+        <text x="50" y="56" textAnchor="middle" fill="#1e293b" fontSize="7" fontWeight="bold" fontFamily="system-ui">
+          {fmt(safeTotal)}
+        </text>
+      </svg>
+      <div className="flex-1 space-y-1.5 min-w-0">
+        {data.slice(0, 5).map((d, i) => {
+          const style = catStyle(d.category);
+          const pct = safeTotal > 0 ? Math.round((d.amount / safeTotal) * 100) : 0;
+          return (
+            <div key={i} className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${style.dot}`} />
+                <span className="text-slate-600 truncate">{titleCase(d.category)}</span>
+              </div>
+              <span className="font-semibold text-slate-700 tabular-nums flex-shrink-0">{pct}%</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Monthly Bars ─────────────────────────────────────────────────────────────
+
+function MonthlyBars({ data }) {
+  if (!data || data.length === 0) {
+    return <p className="text-sm text-slate-400 text-center py-6">No monthly data yet</p>;
+  }
+  const max = Math.max(...data.map((d) => d.amount), 1);
+  return (
+    <div className="flex items-end gap-2" style={{ height: 90 }}>
+      {data.map((d, i) => {
+        const pct = (d.amount / max) * 100;
+        const isLatest = i === data.length - 1;
+        return (
+          <div key={i} className="flex-1 flex flex-col items-center gap-1 group">
+            <span className={`text-[9px] tabular-nums transition-opacity ${isLatest ? 'opacity-100 text-slate-600 font-semibold' : 'opacity-0 group-hover:opacity-100 text-slate-400'}`}>
+              {fmt(d.amount)}
+            </span>
+            <div className="w-full relative flex-1">
+              <div
+                className={`absolute bottom-0 w-full rounded-sm transition-all ${isLatest ? 'bg-slate-900' : 'bg-slate-200 group-hover:bg-slate-300'}`}
+                style={{ height: `${Math.max(pct, 3)}%` }}
+              />
+            </div>
+            <span className={`text-[10px] ${isLatest ? 'font-semibold text-slate-700' : 'text-slate-400'}`}>
+              {d.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Budget Row ───────────────────────────────────────────────────────────────
+
+function BudgetRow({ category, spent, budget }) {
+  const pct = budget > 0 ? Math.min((spent / budget) * 100, 100) : 0;
+  const over = spent > budget;
+  const warn = !over && pct >= 80;
+  const style = catStyle(category);
+  return (
+    <div className="py-3 border-b border-slate-50 last:border-0">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${style.dot}`} />
+          <span className="text-sm font-medium text-slate-800">{titleCase(category)}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500 tabular-nums">
+            {fmt(spent)} <span className="text-slate-300">/</span> {fmt(budget)}
+          </span>
+          {over && (
+            <span className="text-[10px] font-semibold text-white bg-red-500 px-1.5 py-0.5 rounded">Over</span>
+          )}
+          {warn && !over && (
+            <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Alert</span>
+          )}
+        </div>
+      </div>
+      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${over ? 'bg-red-400' : warn ? 'bg-amber-400' : 'bg-emerald-400'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Transaction Row ──────────────────────────────────────────────────────────
+
+function TransactionRow({ expense }) {
+  const style = catStyle(expense.category);
+  return (
+    <div className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0">
+      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${style.bg}`}>
+        <div className={`w-2.5 h-2.5 rounded-full ${style.dot}`} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-slate-800 truncate">
+          {expense.description || titleCase(expense.category)}
+        </p>
+        <p className="text-xs text-slate-400">{expense.date}{expense.time ? ` · ${expense.time}` : ''}</p>
+      </div>
+      <div className="text-right flex-shrink-0">
+        <p className="text-sm font-semibold text-slate-900 tabular-nums">−{fmt(expense.amount)}</p>
+        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${style.bg} ${style.text}`}>
+          {titleCase(expense.category)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Add Expense Form ─────────────────────────────────────────────────────────
+
+function AddExpenseForm({ onAdd, onCancel, submitting }) {
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('food');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const n = parseFloat(amount);
+    if (!n || n <= 0) return;
+    onAdd(n, category);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-800">Add expense</h3>
+        {onCancel && (
+          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1.5">Amount (₹)</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
+            <input
+              type="number"
+              min="1"
+              step="any"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0"
+              className="w-full pl-7 pr-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1.5">Category</label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 bg-white"
+          >
+            {Object.keys(BUDGET_GUESSES).filter((c) => c !== 'uncategorized').map((c) => (
+              <option key={c} value={c}>{titleCase(c)}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <button
+        type="submit"
+        disabled={!amount || parseFloat(amount) <= 0 || submitting}
+        className="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+      >
+        {submitting ? (
+          <span className="animate-pulse">Adding…</span>
+        ) : (
+          <><Plus className="w-4 h-4" /> Add Expense</>
+        )}
+      </button>
+    </form>
+  );
+}
+
+// ─── Tab Bar ──────────────────────────────────────────────────────────────────
+
+function TabBar({ active, onChange }) {
+  const labels = { overview: 'Overview', transactions: 'Transactions', budgets: 'Budgets', settings: 'Settings' };
+  return (
+    <div className="flex bg-slate-100 rounded-xl p-0.5 gap-0.5">
+      {TABS.map((tab) => (
+        <button
+          key={tab}
+          onClick={() => onChange(tab)}
+          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            active === tab
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          {labels[tab]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
 const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLogging }) => {
-  const [isDark, toggleDark] = useTheme();
-  const [activeTab, setActiveTab] = useState('dashboard');
-
-  const [summary, setSummary] = useState(null);
+  const [summary, setSummary]               = useState(null);
   const [recentExpenses, setRecentExpenses] = useState([]);
   const [chartCategories, setChartCategories] = useState([]);
-  const [chartDaily, setChartDaily] = useState([]);
-  const [chartMonthly, setChartMonthly] = useState([]);
-
-  const [isRecording, setIsRecording] = useState(false);
-  const [newExpense, setNewExpense] = useState({ amount: '', category: 'food', description: '' });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [toasts, setToasts] = useState([]);
-  const [voiceStatus, setVoiceStatus] = useState('');
+  const [chartDaily, setChartDaily]         = useState([]);
+  const [chartMonthly, setChartMonthly]     = useState([]);
+  const [isRecording, setIsRecording]       = useState(false);
+  const [voiceStatus, setVoiceStatus]       = useState('');
   const [voiceProcessing, setVoiceProcessing] = useState(false);
-  const [voiceConfirm, setVoiceConfirm] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [budgetWarnings, setBudgetWarnings] = useState([]);
-  const [preferenceSaving, setPreferenceSaving] = useState(false);
+  const [voiceConfirm, setVoiceConfirm]     = useState(null);
+  const [tab, setTab]                       = useState('overview');
+  const [showAddForm, setShowAddForm]       = useState(false);
+  const [submitting, setSubmitting]         = useState(false);
+  const [loading, setLoading]               = useState(true);
+  const [toast, setToast]                   = useState(null);
+  const [budgetWarning, setBudgetWarning]   = useState(null);
+  const [alertsDismissed, setAlertsDismissed] = useState(false);
+  const [prefSaving, setPrefSaving]         = useState(false);
 
   const recognitionRef = useRef(null);
-  const toastTimerRef = useRef({});
+  const toastTimer     = useRef(null);
 
-  const displayName = user?.display_name || user?.email || 'You';
+  const displayName = user?.display_name || user?.displayName || user?.email || 'You';
   const loggingEnabled = Boolean(preferences?.log_opt_in);
 
-  const addToast = useCallback((type, message) => {
-    const id = Date.now();
-    setToasts((prev) => [...prev.slice(-2), { id, type, message }]);
-    toastTimerRef.current[id] = setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
-  }, []);
+  // ── Data loading ────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    setError(null);
     try {
-      const [summaryResult, recentResult, categoryResult, dailyResult, monthlyResult] =
-        await Promise.allSettled([
-          getSummary(),
-          getRecent(RECENT_LIMIT),
-          getCategoryBreakdown(),
-          getDailyTotals(7),
-          getMonthlyTotals(6),
-        ]);
-
-      if (summaryResult.status === 'fulfilled') setSummary(summaryResult.value);
-      else setSummary(null);
-
-      if (recentResult.status === 'fulfilled') {
-        const payload = recentResult.value;
-        const items = Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : Array.isArray(payload?.recent) ? payload.recent : [];
+      const [sumR, recR, catR, dayR, monR] = await Promise.allSettled([
+        getSummary(), getRecent(RECENT_LIMIT),
+        getCategoryBreakdown(), getDailyTotals(7), getMonthlyTotals(6),
+      ]);
+      if (sumR.status === 'fulfilled') setSummary(sumR.value);
+      if (recR.status === 'fulfilled') {
+        const p = recR.value;
+        const items = Array.isArray(p) ? p : Array.isArray(p?.items) ? p.items : Array.isArray(p?.recent) ? p.recent : [];
         setRecentExpenses(mapRecentExpenses(items));
-      } else setRecentExpenses([]);
-
-      if (categoryResult.status === 'fulfilled') {
-        const items = categoryResult.value?.items || categoryResult.value?.data || [];
-        setChartCategories(Array.isArray(items) ? items : []);
-      } else setChartCategories([]);
-
-      if (dailyResult.status === 'fulfilled') {
-        const items = dailyResult.value?.items || dailyResult.value?.data || [];
-        setChartDaily(Array.isArray(items) ? items : []);
-      } else setChartDaily([]);
-
-      if (monthlyResult.status === 'fulfilled') {
-        const items = monthlyResult.value?.items || monthlyResult.value?.data || [];
-        setChartMonthly(Array.isArray(items) ? items : []);
-      } else setChartMonthly([]);
-
-    } catch (err) {
-      setError(err.message || 'Unable to load data.');
+      }
+      if (catR.status === 'fulfilled') setChartCategories(catR.value?.items || catR.value?.data || []);
+      if (dayR.status === 'fulfilled') setChartDaily(dayR.value?.items || dayR.value?.data || []);
+      if (monR.status === 'fulfilled') setChartMonthly(monR.value?.items || monR.value?.data || []);
     } finally {
       setLoading(false);
     }
@@ -573,27 +597,33 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ── Toast helper ─────────────────────────────────────────────────────────────
+
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ message, type });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4500);
+  }, []);
+
+  // ── Voice handling ───────────────────────────────────────────────────────────
+
   const handleVoiceResponse = useCallback(async (data) => {
-    if (!data) { addToast('error', 'No response from assistant.'); return; }
-    const replyMessage = data.reply || data.message || 'Command processed.';
-    const isError = data.error || data.success === false;
-    setVoiceStatus(replyMessage);
-    addToast(isError ? 'error' : 'success', replyMessage);
+    if (!data) { showToast('No response from assistant.', 'error'); return true; }
+    const reply = data.reply || data.message || 'Command processed.';
+    const isErr = data.error || data.success === false;
+    setVoiceStatus(reply);
+    showToast(reply, isErr ? 'error' : 'info');
 
-    if (data.budget_alert) setBudgetWarnings((prev) => [...new Set([...prev, data.budget_alert])]);
-    else if (Array.isArray(data?.dashboard?.budget_alerts) && data.dashboard.budget_alerts.length > 0) {
-      setBudgetWarnings(data.dashboard.budget_alerts);
-    }
+    if (data.budget_alert) setBudgetWarning(data.budget_alert);
+    else if (!isErr) setBudgetWarning(null);
 
-    if (replyMessage && 'speechSynthesis' in window && replyMessage.length <= 160) {
-      const utter = new SpeechSynthesisUtterance(replyMessage);
-      window.speechSynthesis.speak(utter);
+    if ('speechSynthesis' in window && reply && reply.length <= 160) {
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(reply));
     }
 
     const options = data.options || data.option_list || data.clarification_options;
-    const needsConfirmation = data.needs_confirmation || data.needsClarification || data.request_confirmation;
-    if (needsConfirmation && Array.isArray(options) && options.length > 0) {
-      setVoiceConfirm({ title: data.confirmation_prompt || 'Confirm command', message: replyMessage, options });
+    if ((data.needs_confirmation || data.needsClarification) && Array.isArray(options) && options.length) {
+      setVoiceConfirm({ title: data.confirmation_prompt || 'Please confirm', message: reply, options });
       return false;
     }
 
@@ -608,1014 +638,480 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
       });
       setRecentExpenses(mapRecentExpenses(data.dashboard.recent_expenses || []));
       if (data.dashboard.chart_series) {
-        const charts = data.dashboard.chart_series;
-        setChartCategories(Array.isArray(charts.category_breakdown) ? charts.category_breakdown : []);
-        setChartDaily(Array.isArray(charts.daily_totals) ? charts.daily_totals : []);
-        setChartMonthly(Array.isArray(charts.monthly_totals) ? charts.monthly_totals : []);
-      } else await loadData();
-    } else if (!isError) await loadData();
+        const c = data.dashboard.chart_series;
+        setChartCategories(Array.isArray(c.category_breakdown) ? c.category_breakdown : []);
+        setChartDaily(Array.isArray(c.daily_totals) ? c.daily_totals : []);
+        setChartMonthly(Array.isArray(c.monthly_totals) ? c.monthly_totals : []);
+      } else { await loadData(); }
+    } else if (!isErr) { await loadData(); }
     return true;
-  }, [addToast, loadData]);
+  }, [loadData, showToast]);
 
-  const handleVoiceConfirmSelect = useCallback(async (option) => {
-    setVoiceConfirm(null);
-    const cmd = option?.value || option?.command || option?.text || option?.label || option;
-    if (!cmd || (typeof cmd === 'string' && !cmd.trim())) { setVoiceStatus('Cancelled.'); return; }
+  const sendVoice = useCallback(async (text) => {
     setVoiceProcessing(true);
     try {
-      const response = await apiSendVoiceCommand(String(cmd));
-      await handleVoiceResponse(response);
+      const res = await apiSendVoiceCommand(text);
+      await handleVoiceResponse(res);
     } catch (err) {
-      addToast('error', err?.message || 'Voice command failed.');
-    } finally { setVoiceProcessing(false); }
-  }, [handleVoiceResponse, addToast]);
-
-  const handleVoiceConfirmCancel = useCallback(() => {
-    setVoiceConfirm(null);
-    setVoiceStatus('Cancelled.');
-  }, []);
+      const msg = err?.message || 'Voice command failed.';
+      setVoiceStatus(msg);
+      showToast(msg, 'error');
+    } finally {
+      setVoiceProcessing(false);
+    }
+  }, [handleVoiceResponse, showToast]);
 
   useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { recognitionRef.current = null; return; }
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-IN';
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.onstart = () => { setIsRecording(true); setVoiceStatus('Listening…'); };
-    recognition.onerror = (e) => {
-      setIsRecording(false);
-      setVoiceProcessing(false);
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { recognitionRef.current = null; return; }
+    const r = new SR();
+    r.lang = 'en-IN';
+    r.continuous = false;
+    r.interimResults = false;
+    r.onstart = () => { setIsRecording(true); setVoiceStatus('Listening…'); };
+    r.onerror = (e) => {
+      setIsRecording(false); setVoiceProcessing(false);
       setVoiceStatus(e.error === 'no-speech' ? 'No speech detected.' : `Error: ${e.error}`);
     };
-    recognition.onend = () => setIsRecording(false);
-    recognition.onresult = async (e) => {
-      const transcript = e.results[0][0].transcript;
-      setVoiceStatus(`"${transcript}"`);
-      setVoiceProcessing(true);
-      try {
-        const response = await apiSendVoiceCommand(transcript);
-        await handleVoiceResponse(response);
-      } catch (err) {
-        addToast('error', err?.message || 'Voice command failed.');
-        setVoiceConfirm(null);
-      }
-      setVoiceProcessing(false);
+    r.onend = () => setIsRecording(false);
+    r.onresult = (e) => {
+      const t = e.results[0][0].transcript;
+      setVoiceStatus(`Heard: "${t}"`);
+      sendVoice(t);
     };
-    recognitionRef.current = recognition;
-    return () => recognition.stop();
-  }, [handleVoiceResponse, addToast]);
+    recognitionRef.current = r;
+    return () => r.stop();
+  }, [sendVoice]);
 
-  const toggleRecording = () => {
+  const toggleRecording = useCallback(() => {
     if (voiceProcessing || voiceConfirm) return;
-    const recognition = recognitionRef.current;
-    if (!recognition) { addToast('error', 'Voice not supported in this browser.'); return; }
-    if (isRecording) { recognition.stop(); return; }
-    setVoiceStatus('Preparing…');
-    try { recognition.start(); } catch { setVoiceStatus('Could not access microphone.'); }
-  };
+    const r = recognitionRef.current;
+    if (!r) { setVoiceStatus('Voice not supported in this browser.'); return; }
+    if (isRecording) { r.stop(); return; }
+    try { r.start(); } catch (_) {}
+  }, [isRecording, voiceConfirm, voiceProcessing]);
 
-  const handleAddExpense = async () => {
-    const amountValue = Number(newExpense.amount);
-    if (!amountValue || amountValue <= 0) { addToast('error', 'Enter a valid amount.'); return; }
-    if (!newExpense.category) { addToast('error', 'Select a category.'); return; }
+  // ── Add expense ──────────────────────────────────────────────────────────────
+
+  const handleAddExpense = useCallback(async (amount, category) => {
     setSubmitting(true);
     try {
-      const payload = await apiAddExpense({ amount: amountValue, category: newExpense.category, description: newExpense.description });
-      addToast('success', payload.message || 'Expense added.');
-      setNewExpense({ amount: '', category: newExpense.category, description: '' });
+      const res = await apiAddExpense({ amount, category });
+      showToast(res.message || `Added ${fmt(amount)} to ${titleCase(category)}`, 'success');
+      setShowAddForm(false);
       await loadData();
     } catch (err) {
-      addToast('error', err.message || 'Failed to add expense.');
-    } finally { setSubmitting(false); }
-  };
+      showToast(err.message || 'Failed to add expense.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [loadData, showToast]);
 
-  const handlePreferenceToggle = useCallback(async () => {
-    if (!user) return;
-    setPreferenceSaving(true);
-    try {
-      const next = !loggingEnabled;
-      await onToggleLogging(next);
-      addToast('success', next ? 'Command logging enabled.' : 'Command logging disabled.');
-    } catch (err) {
-      addToast('error', err.message || 'Unable to update preference.');
-    } finally { setPreferenceSaving(false); }
-  }, [loggingEnabled, onToggleLogging, user, addToast]);
+  // ── Derived data ─────────────────────────────────────────────────────────────
 
-  // Computed values
-  const weeklySummaryData = useMemo(() => parseWeeklySummary(summary?.weekly_summary), [summary?.weekly_summary]);
-  const monthlySummaryData = useMemo(() => parseMonthlySummary(summary?.monthly_summary), [summary?.monthly_summary]);
+  const weeklySummary  = useMemo(() => parseWeeklySummary(summary?.weekly_summary), [summary?.weekly_summary]);
+  const monthlySummary = useMemo(() => parseMonthlySummary(summary?.monthly_summary), [summary?.monthly_summary]);
   const categoryTotals = useMemo(() => normalizeCategoryTotals(summary?.category_totals), [summary?.category_totals]);
 
-  const todayTotal = summary ? Number(summary.total_today) || 0 : 0;
-  const monthlyTotal = summary?.monthly_total ?? monthlySummaryData.total ?? 0;
+  const todayTotal   = summary ? Number(summary.total_today) || 0 : 0;
+  const monthlyTotal = summary?.monthly_total ?? monthlySummary.total ?? 0;
+  const weeklyTotal  = weeklySummary.total ?? 0;
+  const budgetAlerts = useMemo(() => {
+    const alerts = Array.isArray(summary?.budget_alerts) ? summary.budget_alerts : [];
+    if (budgetWarning && !alerts.includes(budgetWarning)) return [budgetWarning, ...alerts];
+    return alerts;
+  }, [summary?.budget_alerts, budgetWarning]);
+
+  const dailySpending = useMemo(() => {
+    const fromApi = normalizeDailyChart(chartDaily);
+    return fromApi.length > 0 ? fromApi : computeDailySpending(recentExpenses);
+  }, [chartDaily, recentExpenses]);
 
   const categorySpending = useMemo(() => {
     const fromApi = normalizeCategoryChart(chartCategories);
     if (fromApi.length > 0) return fromApi;
-    return categoryTotals.map((item) => ({ category: titleCase(item.category), amount: item.amount, key: item.category }));
+    return categoryTotals.map((t) => ({ category: t.category, amount: t.amount }));
   }, [chartCategories, categoryTotals]);
-
-  const dailySpending = useMemo(() => {
-    const fromApi = normalizeDailyChart(chartDaily);
-    if (fromApi.length > 0) return fromApi;
-    return computeDailySpending(recentExpenses);
-  }, [chartDaily, recentExpenses]);
 
   const monthlyTrend = useMemo(() => normalizeMonthlyChart(chartMonthly), [chartMonthly]);
 
-  const categoryData = useMemo(() =>
-    categoryTotals.map((item) => {
-      const budget = BUDGET_GUESSES[item.category] ?? 4000;
-      return { category: item.category, total: item.amount, budget };
-    }), [categoryTotals]);
-
-  const maxDaily = useMemo(() => Math.max(...dailySpending.map((d) => d.amount), 1), [dailySpending]);
-  const maxMonthly = useMemo(() => Math.max(...monthlyTrend.map((m) => m.amount), 1), [monthlyTrend]);
-
-  const bg = isDark ? '#0f1623' : '#f8fafc';
-  const cardBg = isDark ? '#1e2433' : '#ffffff';
-  const borderColor = isDark ? '#2d3748' : '#e5e7eb';
-  const textPrimary = isDark ? '#f1f5f9' : '#0f172a';
-  const textSecondary = isDark ? '#94a3b8' : '#6b7280';
-  const textMuted = isDark ? '#475569' : '#d1d5db';
-
-  const navItems = [
-    { id: 'dashboard', icon: Home, label: 'Dashboard' },
-    { id: 'analytics', icon: BarChart3, label: 'Analytics' },
-    { id: 'expenses', icon: Wallet, label: 'Expenses' },
-    { id: 'budget', icon: Activity, label: 'Budget' },
-    { id: 'settings', icon: Settings, label: 'Settings' },
-  ];
-
-  // ─── Sidebar ────────────────────────────────────────────────────────────────
-  const Sidebar = ({ mobile = false }) => (
-    <nav style={{
-      width: mobile ? '100%' : 220,
-      background: isDark ? '#141924' : '#1e3a8a',
-      display: 'flex',
-      flexDirection: mobile ? 'row' : 'column',
-      padding: mobile ? '8px 8px' : '24px 12px',
-      gap: mobile ? 4 : 4,
-      flexShrink: 0,
-      ...(mobile ? { borderTop: `1px solid ${isDark ? '#2d3748' : '#1e40af'}` } : {}),
-    }}>
-      {!mobile && (
-        <div style={{ padding: '0 8px 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 32, height: 32, background: '#3b82f6', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Zap size={18} color="white" />
-            </div>
-            <div>
-              <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'white' }}>Voxly</p>
-              <p style={{ margin: 0, fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.08em' }}>FINANCE</p>
-            </div>
-          </div>
-        </div>
-      )}
-      {navItems.map((item) => {
-        const active = activeTab === item.id;
-        return (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id)}
-            style={{
-              display: 'flex',
-              flexDirection: mobile ? 'column' : 'row',
-              alignItems: 'center',
-              gap: mobile ? 4 : 10,
-              padding: mobile ? '6px 4px' : '10px 12px',
-              borderRadius: 8,
-              border: 'none',
-              cursor: 'pointer',
-              flex: mobile ? 1 : 'none',
-              background: active ? 'rgba(255,255,255,0.15)' : 'transparent',
-              color: active ? 'white' : 'rgba(255,255,255,0.55)',
-              fontSize: mobile ? 10 : 14,
-              fontWeight: active ? 600 : 400,
-              transition: 'all 0.15s',
-            }}
-          >
-            <item.icon size={mobile ? 20 : 18} />
-            {item.label}
-          </button>
-        );
-      })}
-      {!mobile && (
-        <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-          <button
-            onClick={onLogout}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-              borderRadius: 8, border: 'none', cursor: 'pointer', background: 'transparent',
-              color: 'rgba(255,255,255,0.55)', fontSize: 14, width: '100%',
-            }}
-          >
-            <LogOut size={18} />
-            Sign out
-          </button>
-        </div>
-      )}
-    </nav>
+  const budgetData = useMemo(() =>
+    categoryTotals
+      .filter((t) => t.amount > 0)
+      .map((t) => ({ category: t.category, spent: t.amount, budget: BUDGET_GUESSES[t.category] ?? 2500 })),
+    [categoryTotals]
   );
 
-  // ─── Dashboard Tab ──────────────────────────────────────────────────────────
-  const DashboardTab = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <StatCard label="Today's Spend" value={formatINR(todayTotal)} icon={Wallet} color="blue" isDark={isDark} />
-        <StatCard label="This Month" value={formatINR(monthlyTotal)} icon={Calendar} color="purple" isDark={isDark}
-          sub={weeklySummaryData.dailyAverage ? `Avg ${formatINR(weeklySummaryData.dailyAverage)}/day` : undefined} />
-        <StatCard label="Weekly Total" value={weeklySummaryData.total != null ? formatINR(weeklySummaryData.total) : '—'} icon={TrendingUp} color="green" isDark={isDark} />
-        <StatCard label="Categories" value={categorySpending.length || '—'} icon={PieChart} color="amber" isDark={isDark} sub="active this month" />
-      </div>
+  // ── Settings ─────────────────────────────────────────────────────────────────
 
-      {/* Alerts */}
-      {(budgetWarnings.length > 0 || (summary?.budget_alerts?.length > 0)) && (
-        <div>
-          {budgetWarnings.map((w, i) => (
-            <AlertBanner key={`bw-${i}`} type="warning" message={w} isDark={isDark}
-              onDismiss={() => setBudgetWarnings((prev) => prev.filter((_, idx) => idx !== i))} />
-          ))}
-          {(summary?.budget_alerts || []).map((a, i) => (
-            <AlertBanner key={`ba-${i}`} type="warning" message={a} isDark={isDark} />
-          ))}
-        </div>
-      )}
+  const handleToggleLogging = useCallback(async () => {
+    setPrefSaving(true);
+    try {
+      await onToggleLogging(!loggingEnabled);
+      showToast(loggingEnabled ? 'Logging disabled.' : 'Logging enabled.', 'success');
+    } catch { showToast('Failed to update preference.', 'error'); }
+    finally { setPrefSaving(false); }
+  }, [loggingEnabled, onToggleLogging, showToast]);
 
-      {/* Voice + Daily chart row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.6fr)', gap: 12 }}>
-        {/* Voice card */}
-        <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px 0', borderBottom: `1px solid ${borderColor}` }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: textPrimary }}>Voice Assistant</p>
-            <p style={{ margin: '2px 0 12px', fontSize: 11, color: textSecondary }}>Natural language commands</p>
-          </div>
-          <VoiceButton isRecording={isRecording} voiceProcessing={voiceProcessing} voiceConfirm={voiceConfirm}
-            onClick={toggleRecording} voiceStatus={voiceStatus} isDark={isDark} />
-          {/* Quick commands */}
-          <div style={{ padding: '0 16px 16px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {['Add 500 food', 'Weekly summary', 'My budget', 'Delete last'].map((cmd) => (
-              <button key={cmd} onClick={async () => {
-                setVoiceProcessing(true);
-                try { const r = await apiSendVoiceCommand(cmd); await handleVoiceResponse(r); }
-                catch (err) { addToast('error', err.message || 'Failed.'); }
-                finally { setVoiceProcessing(false); }
-              }} style={{
-                fontSize: 11, padding: '4px 10px', borderRadius: 99,
-                background: isDark ? '#1e3a5f' : '#eff6ff',
-                border: `1px solid ${isDark ? '#2563eb' : '#bfdbfe'}`,
-                color: isDark ? '#93c5fd' : '#1d4ed8',
-                cursor: 'pointer', fontWeight: 500,
-              }}>{cmd}</button>
-            ))}
-          </div>
-        </div>
-
-        {/* Daily spend chart */}
-        <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: '16px 20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div>
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: textPrimary }}>Daily Spending</p>
-              <p style={{ margin: '2px 0 0', fontSize: 11, color: textSecondary }}>Last 7 days</p>
-            </div>
-            <BarChart3 size={16} color={textMuted} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 120 }}>
-            {dailySpending.map((day, idx) => {
-              const height = maxDaily ? (day.amount / maxDaily) * 100 : 0;
-              const isToday = idx === dailySpending.length - 1;
-              const isOver = day.amount > 1500;
-              return (
-                <div key={idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
-                  <div
-                    title={formatINRDecimal(day.amount)}
-                    style={{
-                      width: '100%',
-                      height: `${height}%`,
-                      minHeight: day.amount > 0 ? 4 : 0,
-                      background: isOver ? '#ef4444' : isToday ? '#2563eb' : isDark ? '#3b4d6a' : '#bfdbfe',
-                      borderRadius: '4px 4px 0 0',
-                      transition: 'height 0.4s ease',
-                      cursor: 'pointer',
-                    }}
-                  />
-                  <span style={{ fontSize: 10, color: textSecondary }}>{day.day}</span>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ marginTop: 8, display: 'flex', gap: 12, fontSize: 11, color: textSecondary }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: '#2563eb', display: 'inline-block' }} />Today
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: '#ef4444', display: 'inline-block' }} />Over budget
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent expenses */}
-      <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12 }}>
-        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${borderColor}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: textPrimary }}>Recent Expenses</p>
-          {loading && <span style={{ fontSize: 11, color: textSecondary }}>Refreshing…</span>}
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          {recentExpenses.length === 0 ? (
-            <p style={{ textAlign: 'center', color: textSecondary, fontSize: 13, padding: '24px 0' }}>No expenses yet.</p>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Date', 'Amount', 'Category', 'Description'].map((h) => (
-                    <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 600, color: textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${borderColor}` }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {recentExpenses.slice(0, 8).map((exp) => (
-                  <tr key={exp.id} style={{ borderBottom: `1px solid ${isDark ? '#1e2d42' : '#f9fafb'}` }}>
-                    <td style={{ padding: '10px 16px', fontSize: 13, color: textSecondary }}>{exp.date || '—'}</td>
-                    <td style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, color: textPrimary }}>{formatINRDecimal(exp.amount)}</td>
-                    <td style={{ padding: '10px 16px' }}>
-                      <span style={{
-                        padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600,
-                        background: `${getCategoryColor(exp.category, isDark)}22`,
-                        color: getCategoryColor(exp.category, isDark),
-                      }}>{titleCase(exp.category)}</span>
-                    </td>
-                    <td style={{ padding: '10px 16px', fontSize: 13, color: textSecondary }}>{exp.description || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
-  // ─── Analytics Tab ──────────────────────────────────────────────────────────
-  const AnalyticsTab = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-        {/* Category donut */}
-        <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: '16px 20px' }}>
-          <p style={{ margin: '0 0 16px', fontSize: 13, fontWeight: 600, color: textPrimary }}>Category Breakdown</p>
-          {categorySpending.length === 0 ? (
-            <p style={{ textAlign: 'center', color: textSecondary, fontSize: 13, padding: '32px 0' }}>Add expenses to see breakdown.</p>
-          ) : (() => {
-            const total = categorySpending.reduce((s, c) => s + c.amount, 0) || 1;
-            let cumulative = 0;
-            const segments = categorySpending.map((cat) => {
-              const pct = cat.amount / total;
-              const startAngle = cumulative * 360;
-              cumulative += pct;
-              const endAngle = cumulative * 360;
-              return { ...cat, pct, startAngle, endAngle };
-            });
-            const toXY = (angle, r) => {
-              const rad = ((angle - 90) * Math.PI) / 180;
-              return [50 + r * Math.cos(rad), 50 + r * Math.sin(rad)];
-            };
-            return (
-              <>
-                <svg viewBox="0 0 100 100" style={{ width: 140, height: 140, display: 'block', margin: '0 auto 16px' }}>
-                  {segments.map((seg, idx) => {
-                    const [x1, y1] = toXY(seg.startAngle, 40);
-                    const [x2, y2] = toXY(seg.endAngle, 40);
-                    const largeArc = seg.endAngle - seg.startAngle > 180 ? 1 : 0;
-                    return (
-                      <path key={idx}
-                        d={`M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`}
-                        fill={getCategoryColor(seg.key || seg.category, isDark)}
-                        stroke={isDark ? '#1e2433' : 'white'}
-                        strokeWidth="1.5"
-                      />
-                    );
-                  })}
-                  <circle cx="50" cy="50" r="22" fill={isDark ? '#1e2433' : 'white'} />
-                  <text x="50" y="46" textAnchor="middle" fontSize="8" fill={textSecondary}>Total</text>
-                  <text x="50" y="56" textAnchor="middle" fontSize="7" fontWeight="600" fill={textPrimary}>
-                    {formatINR(total)}
-                  </text>
-                </svg>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {categorySpending.map((cat, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 3, background: getCategoryColor(cat.key || cat.category, isDark), flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, color: textSecondary }}>{cat.category}</span>
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: textPrimary }}>{formatINR(cat.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            );
-          })()}
-        </div>
-
-        {/* Monthly trend */}
-        <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: '16px 20px' }}>
-          <p style={{ margin: '0 0 16px', fontSize: 13, fontWeight: 600, color: textPrimary }}>Monthly Trend</p>
-          {monthlyTrend.length === 0 ? (
-            <p style={{ textAlign: 'center', color: textSecondary, fontSize: 13, padding: '32px 0' }}>No monthly data yet.</p>
-          ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 140 }}>
-                {monthlyTrend.map((month, idx) => {
-                  const height = maxMonthly ? (month.amount / maxMonthly) * 100 : 0;
-                  const isLast = idx === monthlyTrend.length - 1;
-                  return (
-                    <div key={idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
-                      <div title={`${month.label}: ${formatINRDecimal(month.amount)}`} style={{
-                        width: '100%',
-                        height: `${height}%`,
-                        minHeight: month.amount > 0 ? 4 : 0,
-                        background: isLast
-                          ? isDark ? '#3b82f6' : '#2563eb'
-                          : isDark ? '#1e3a5f' : '#dbeafe',
-                        borderRadius: '4px 4px 0 0',
-                        transition: 'height 0.4s ease',
-                      }} />
-                      <span style={{ fontSize: 9, color: textSecondary, textAlign: 'center', lineHeight: 1.2 }}>
-                        {month.label.replace(' 20', ' ')}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              {monthlyTrend.length >= 2 && (() => {
-                const curr = monthlyTrend[monthlyTrend.length - 1].amount;
-                const prev = monthlyTrend[monthlyTrend.length - 2].amount;
-                const diff = curr - prev;
-                const pct = prev > 0 ? Math.abs((diff / prev) * 100).toFixed(0) : null;
-                return (
-                  <p style={{ margin: '12px 0 0', fontSize: 12, color: diff >= 0 ? '#ef4444' : '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {diff >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                    {diff >= 0 ? '+' : ''}{formatINR(diff)} {pct && `(${pct}%)`} vs last month
-                  </p>
-                );
-              })()}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Weekly summary panel */}
-      <SectionCard title="Weekly Summary" icon={TrendingUp} isDark={isDark} defaultOpen>
-        {weeklySummaryData.lines.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {weeklySummaryData.lines.map((line, i) => (
-              <p key={i} style={{ margin: 0, fontSize: 13, color: textSecondary, lineHeight: 1.6 }}>{line}</p>
-            ))}
-          </div>
-        ) : (
-          <p style={{ margin: 0, fontSize: 13, color: textSecondary }}>Add expenses to generate weekly insights.</p>
-        )}
-      </SectionCard>
-
-      <SectionCard title="Monthly Summary" icon={Calendar} isDark={isDark}>
-        {monthlySummaryData.lines.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {monthlySummaryData.lines.map((line, i) => (
-              <p key={i} style={{ margin: 0, fontSize: 13, color: textSecondary, lineHeight: 1.6 }}>{line}</p>
-            ))}
-          </div>
-        ) : (
-          <p style={{ margin: 0, fontSize: 13, color: textSecondary }}>Monthly data will appear after expenses are logged.</p>
-        )}
-      </SectionCard>
-    </div>
-  );
-
-  // ─── Expenses Tab ───────────────────────────────────────────────────────────
-  const ExpensesTab = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Add form */}
-      <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: '20px' }}>
-        <p style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: textPrimary, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Plus size={16} color={isDark ? '#60a5fa' : '#2563eb'} />
-          Add Expense
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: textSecondary, marginBottom: 6, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-              Amount (₹)
-            </label>
-            <input
-              type="number"
-              value={newExpense.amount}
-              onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
-              placeholder="0"
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '10px 12px', borderRadius: 8,
-                border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                background: isDark ? '#111827' : '#f9fafb',
-                color: textPrimary, fontSize: 14,
-                outline: 'none',
-              }}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: textSecondary, marginBottom: 6, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-              Category
-            </label>
-            <select
-              value={newExpense.category}
-              onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '10px 12px', borderRadius: 8,
-                border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                background: isDark ? '#111827' : '#f9fafb',
-                color: textPrimary, fontSize: 14,
-                outline: 'none',
-              }}
-            >
-              {['food', 'transport', 'entertainment', 'shopping', 'utilities', 'health', 'personal', 'other'].map((c) => (
-                <option key={c} value={c}>{titleCase(c)}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: textSecondary, marginBottom: 6, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-              Note (optional)
-            </label>
-            <input
-              type="text"
-              value={newExpense.description}
-              onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })}
-              placeholder="e.g. lunch with team"
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '10px 12px', borderRadius: 8,
-                border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                background: isDark ? '#111827' : '#f9fafb',
-                color: textPrimary, fontSize: 14,
-                outline: 'none',
-              }}
-            />
-          </div>
-        </div>
-        <button
-          onClick={handleAddExpense}
-          disabled={submitting}
-          style={{
-            padding: '10px 24px', borderRadius: 8, border: 'none',
-            background: submitting ? (isDark ? '#374151' : '#e5e7eb') : '#2563eb',
-            color: submitting ? textSecondary : 'white',
-            fontSize: 14, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {submitting ? 'Adding…' : 'Add Expense'}
-        </button>
-      </div>
-
-      {/* All recent expenses table */}
-      <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12 }}>
-        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${borderColor}` }}>
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: textPrimary }}>Expense History</p>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          {recentExpenses.length === 0 ? (
-            <p style={{ textAlign: 'center', color: textSecondary, fontSize: 13, padding: '32px 0' }}>No expenses yet. Add one above.</p>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Date', 'Time', 'Amount', 'Category', 'Description'].map((h) => (
-                    <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 600, color: textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${borderColor}` }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {recentExpenses.map((exp) => (
-                  <tr key={exp.id} style={{ borderBottom: `1px solid ${isDark ? '#1a2030' : '#f9fafb'}` }}>
-                    <td style={{ padding: '10px 16px', fontSize: 13, color: textSecondary }}>{exp.date || '—'}</td>
-                    <td style={{ padding: '10px 16px', fontSize: 12, color: textMuted }}>{exp.time || '—'}</td>
-                    <td style={{ padding: '10px 16px', fontSize: 13, fontWeight: 700, color: textPrimary }}>{formatINRDecimal(exp.amount)}</td>
-                    <td style={{ padding: '10px 16px' }}>
-                      <span style={{
-                        padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600,
-                        background: `${getCategoryColor(exp.category, isDark)}22`,
-                        color: getCategoryColor(exp.category, isDark),
-                      }}>{titleCase(exp.category)}</span>
-                    </td>
-                    <td style={{ padding: '10px 16px', fontSize: 13, color: textSecondary }}>{exp.description || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
-  // ─── Budget Tab ─────────────────────────────────────────────────────────────
-  const BudgetTab = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: '20px' }}>
-        <p style={{ margin: '0 0 20px', fontSize: 14, fontWeight: 600, color: textPrimary }}>Budget Status</p>
-        {categoryData.length === 0 ? (
-          <p style={{ color: textSecondary, fontSize: 13 }}>Add expenses to see budget tracking.</p>
-        ) : (
-          categoryData.map((cat) => (
-            <BudgetBar key={cat.category} category={cat.category} spent={cat.total} budget={cat.budget} isDark={isDark} />
-          ))
-        )}
-      </div>
-
-      <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: '16px 20px' }}>
-        <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: textPrimary }}>Voice Budget Commands</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {[
-            '"Set budget for food to 8000"',
-            '"Set budget for transport to 3000 warn me at 70 percent"',
-            '"What\'s my food budget"',
-            '"Remove budget for entertainment"',
-          ].map((cmd) => (
-            <div key={cmd} style={{
-              padding: '8px 12px', borderRadius: 8,
-              background: isDark ? '#111827' : '#f8fafc',
-              border: `1px solid ${isDark ? '#1e2d42' : '#e5e7eb'}`,
-              fontSize: 12, color: textSecondary, fontFamily: 'monospace',
-            }}>{cmd}</div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  // ─── Settings Tab ───────────────────────────────────────────────────────────
-  const SettingsTab = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: '20px' }}>
-        <p style={{ margin: '0 0 20px', fontSize: 14, fontWeight: 600, color: textPrimary }}>Profile</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-          <div style={{
-            width: 48, height: 48, borderRadius: '50%',
-            background: isDark ? '#1e3a5f' : '#eff6ff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 20, fontWeight: 700, color: isDark ? '#60a5fa' : '#2563eb',
-          }}>
-            {(displayName || 'U')[0].toUpperCase()}
-          </div>
-          <div>
-            <p style={{ margin: 0, fontWeight: 600, fontSize: 15, color: textPrimary }}>{displayName}</p>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: textSecondary }}>{user?.email || ''}</p>
-          </div>
-        </div>
-
-        <div style={{ borderTop: `1px solid ${borderColor}`, paddingTop: 16 }}>
-          <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 600, color: textPrimary }}>Appearance</p>
-          <p style={{ margin: '0 0 12px', fontSize: 12, color: textSecondary }}>Toggle between light and dark theme.</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button onClick={toggleDark} style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
-              background: isDark ? '#1e3a5f' : '#eff6ff',
-              border: `1px solid ${isDark ? '#2563eb' : '#bfdbfe'}`,
-              color: isDark ? '#93c5fd' : '#1d4ed8',
-              fontSize: 13, fontWeight: 500,
-            }}>
-              {isDark ? <Sun size={16} /> : <Moon size={16} />}
-              {isDark ? 'Switch to Light' : 'Switch to Dark'}
-            </button>
-          </div>
-        </div>
-
-        <div style={{ borderTop: `1px solid ${borderColor}`, paddingTop: 16, marginTop: 16 }}>
-          <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 600, color: textPrimary }}>Voice Command Logging</p>
-          <p style={{ margin: '0 0 12px', fontSize: 12, color: textSecondary }}>Store transcripts to debug misheard commands. Opt-in only.</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button
-              onClick={handlePreferenceToggle}
-              disabled={preferenceSaving}
-              style={{
-                width: 44, height: 24, borderRadius: 99, border: 'none', cursor: 'pointer',
-                background: loggingEnabled ? '#2563eb' : isDark ? '#374151' : '#d1d5db',
-                position: 'relative', transition: 'background 0.2s',
-              }}
-            >
-              <span style={{
-                position: 'absolute',
-                top: 2, left: loggingEnabled ? 22 : 2,
-                width: 20, height: 20,
-                background: 'white',
-                borderRadius: '50%',
-                transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-              }} />
-            </button>
-            <span style={{ fontSize: 13, color: textSecondary }}>
-              {loggingEnabled ? 'Enabled' : 'Disabled'}{preferenceSaving && ' (saving…)'}
-            </span>
-          </div>
-        </div>
-
-        <div style={{ borderTop: `1px solid ${borderColor}`, paddingTop: 16, marginTop: 16 }}>
-          <button onClick={onLogout} style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
-            background: isDark ? '#450a0a' : '#fef2f2',
-            border: `1px solid ${isDark ? '#7f1d1d' : '#fecaca'}`,
-            color: isDark ? '#fca5a5' : '#dc2626',
-            fontSize: 13, fontWeight: 500,
-          }}>
-            <LogOut size={15} /> Sign out
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const tabContent = {
-    dashboard: <DashboardTab />,
-    analytics: <AnalyticsTab />,
-    expenses: <ExpensesTab />,
-    budget: <BudgetTab />,
-    settings: <SettingsTab />,
-  };
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: 'DM Sans', sans-serif; }
-        input:focus, select:focus { outline: 2px solid #2563eb; outline-offset: 0; }
-        @keyframes voicePulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.6); opacity: 0; } }
-        @keyframes voiceBar1 { 0%,100% { height: 6px; } 50% { height: 18px; } }
-        @keyframes voiceBar2 { 0%,100% { height: 10px; } 50% { height: 22px; } }
-        @keyframes voiceBar3 { 0%,100% { height: 14px; } 50% { height: 10px; } }
-        @keyframes voiceBar4 { 0%,100% { height: 8px; } 50% { height: 20px; } }
-        @keyframes voiceBar5 { 0%,100% { height: 12px; } 50% { height: 8px; } }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: ${isDark ? '#374151' : '#d1d5db'}; border-radius: 99px; }
-        @media (max-width: 640px) {
-          .desktop-sidebar { display: none !important; }
-          .mobile-bottom-nav { display: flex !important; }
-        }
-        @media (min-width: 641px) {
-          .mobile-bottom-nav { display: none !important; }
-        }
-      `}</style>
+    <div className="min-h-screen bg-slate-50">
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
 
-      {/* Toast container */}
-      <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
-        {toasts.map((toast) => {
-          const colors = {
-            success: { bg: isDark ? '#052e16' : '#f0fdf4', border: isDark ? '#166534' : '#86efac', text: isDark ? '#4ade80' : '#166534' },
-            error: { bg: isDark ? '#450a0a' : '#fef2f2', border: isDark ? '#991b1b' : '#fecaca', text: isDark ? '#f87171' : '#991b1b' },
-            info: { bg: isDark ? '#0c1a2e' : '#eff6ff', border: isDark ? '#1e40af' : '#bfdbfe', text: isDark ? '#93c5fd' : '#1d4ed8' },
-          };
-          const c = colors[toast.type] || colors.info;
-          return (
-            <div key={toast.id} style={{
-              background: c.bg, border: `1px solid ${c.border}`,
-              color: c.text, borderRadius: 10, padding: '10px 14px',
-              fontSize: 13, maxWidth: 320, pointerEvents: 'auto',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              animation: 'slideIn 0.2s ease',
-            }}>
-              {toast.message}
+      {/* Header */}
+      <header className="bg-white border-b border-slate-100 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 bg-slate-900 rounded-lg flex items-center justify-center">
+              <Activity className="w-4 h-4 text-white" />
             </div>
-          );
-        })}
-      </div>
-
-      <div style={{ display: 'flex', height: '100dvh', background: bg, overflow: 'hidden' }}>
-        {/* Desktop sidebar */}
-        <div className="desktop-sidebar" style={{ display: 'flex' }}>
-          <Sidebar />
-        </div>
-
-        {/* Main content */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Top bar */}
-          <header style={{
-            padding: '12px 20px',
-            borderBottom: `1px solid ${borderColor}`,
-            background: isDark ? '#141924' : '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexShrink: 0,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {/* Mobile logo */}
-              <div style={{ display: 'none' }} className="mobile-only">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Zap size={20} color="#2563eb" />
-                  <span style={{ fontSize: 16, fontWeight: 700, color: textPrimary }}>Voxly</span>
-                </div>
+            <span className="font-bold text-slate-900 tracking-tight">Voxly</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-600">
+              <div className="w-6 h-6 bg-slate-200 rounded-full flex items-center justify-center text-[10px] font-bold text-slate-600">
+                {displayName.charAt(0).toUpperCase()}
               </div>
-              <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: textPrimary }}>
-                {navItems.find((n) => n.id === activeTab)?.label}
-              </p>
+              <span className="font-medium">{displayName}</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                onClick={toggleDark}
-                style={{
-                  width: 34, height: 34, borderRadius: 8, border: `1px solid ${borderColor}`,
-                  background: 'none', cursor: 'pointer', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  color: textSecondary,
-                }}
-                aria-label="Toggle theme"
-              >
-                {isDark ? <Sun size={16} /> : <Moon size={16} />}
-              </button>
-              <button
-                onClick={loadData}
-                style={{
-                  width: 34, height: 34, borderRadius: 8, border: `1px solid ${borderColor}`,
-                  background: 'none', cursor: 'pointer', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  color: textSecondary,
-                }}
-                aria-label="Refresh data"
-              >
-                <Activity size={16} />
-              </button>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%',
-                background: isDark ? '#1e3a5f' : '#eff6ff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 13, fontWeight: 700, color: isDark ? '#60a5fa' : '#2563eb',
-              }}>
-                {(displayName || 'U')[0].toUpperCase()}
-              </div>
-            </div>
-          </header>
-
-          {/* Scrollable body */}
-          <main style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
-            {error && (
-              <AlertBanner type="error" message={error} isDark={isDark} onDismiss={() => setError(null)} />
-            )}
-            {tabContent[activeTab] || <DashboardTab />}
-          </main>
-        </div>
-
-        {/* Mobile bottom nav */}
-        <div className="mobile-bottom-nav" style={{ display: 'none' }}>
-          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100 }}>
-            <Sidebar mobile />
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-2.5 py-1.5 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
           </div>
         </div>
-      </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
+
+        {/* Budget alerts */}
+        {!alertsDismissed && budgetAlerts.length > 0 && (
+          <AlertBanner alerts={budgetAlerts} onDismiss={() => setAlertsDismissed(true)} />
+        )}
+
+        {/* Voice + stat cards row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {/* Mic card — spans 2 cols on small, 1 on large */}
+          <div className="col-span-2 sm:col-span-1 bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col items-center justify-center gap-4 min-h-[180px]">
+            <MicButton
+              isRecording={isRecording}
+              processing={voiceProcessing}
+              onToggle={toggleRecording}
+              status={voiceStatus}
+            />
+          </div>
+
+          <StatCard label="Today" value={fmt(todayTotal)} icon={Wallet} iconBg="bg-orange-400" />
+          <StatCard label="This week" value={fmt(weeklyTotal)} icon={Calendar} iconBg="bg-blue-500" />
+          <StatCard label="This month" value={fmt(monthlyTotal)} icon={TrendingUp} iconBg="bg-violet-500" />
+        </div>
+
+        {/* 7-day spark bar */}
+        {dailySpending.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Last 7 days</p>
+            <SparkBar data={dailySpending} />
+          </div>
+        )}
+
+        {/* Tab navigation */}
+        <TabBar active={tab} onChange={setTab} />
+
+        {/* ── Overview tab ── */}
+        {tab === 'overview' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Donut */}
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <PieChart className="w-4 h-4 text-slate-400" />
+                  <h3 className="text-sm font-semibold text-slate-700">Spending breakdown</h3>
+                </div>
+                <DonutChart data={categorySpending} total={monthlyTotal} />
+              </div>
+
+              {/* Monthly trend */}
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <BarChart3 className="w-4 h-4 text-slate-400" />
+                  <h3 className="text-sm font-semibold text-slate-700">Monthly trend</h3>
+                </div>
+                <MonthlyBars data={monthlyTrend} />
+              </div>
+            </div>
+
+            {/* Recent (preview) */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-slate-700">Recent transactions</h3>
+                {loading && <span className="text-xs text-slate-400 animate-pulse">Refreshing…</span>}
+              </div>
+              {recentExpenses.length === 0
+                ? <p className="text-sm text-slate-400 py-4 text-center">No expenses yet</p>
+                : <>
+                    {recentExpenses.slice(0, 5).map((e) => <TransactionRow key={e.id} expense={e} />)}
+                    <button
+                      onClick={() => setTab('transactions')}
+                      className="w-full mt-3 text-xs text-slate-400 hover:text-slate-700 flex items-center justify-center gap-1 transition-colors"
+                    >
+                      View all <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+              }
+            </div>
+          </div>
+        )}
+
+        {/* ── Transactions tab ── */}
+        {tab === 'transactions' && (
+          <div className="space-y-4">
+            {!showAddForm ? (
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-2xl text-sm font-medium text-slate-400 hover:border-slate-300 hover:text-slate-600 flex items-center justify-center gap-2 transition-colors"
+              >
+                <Plus className="w-4 h-4" /> Add expense manually
+              </button>
+            ) : (
+              <AddExpenseForm
+                onAdd={handleAddExpense}
+                onCancel={() => setShowAddForm(false)}
+                submitting={submitting}
+              />
+            )}
+
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-slate-700">All transactions</h3>
+                <span className="text-xs text-slate-400">{recentExpenses.length} entries</span>
+              </div>
+              <div className="overflow-y-auto max-h-[480px]">
+                {recentExpenses.length === 0
+                  ? <p className="text-sm text-slate-400 py-6 text-center">No expenses logged yet</p>
+                  : recentExpenses.map((e) => <TransactionRow key={e.id} expense={e} />)
+                }
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Budgets tab ── */}
+        {tab === 'budgets' && (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-slate-700">Monthly budgets</h3>
+              <span className="text-xs text-slate-400">Resets each month</span>
+            </div>
+
+            {budgetData.length === 0
+              ? <p className="text-sm text-slate-400 py-6 text-center">Add expenses to see budget tracking</p>
+              : budgetData.map((b) => (
+                  <BudgetRow key={b.category} {...b} />
+                ))
+            }
+
+            <p className="text-xs text-slate-400 mt-4 pt-4 border-t border-slate-50 leading-relaxed">
+              Use voice commands to update budgets — e.g.{' '}
+              <em className="text-slate-500">"set budget for transport to 5000 warn me at 75 percent"</em>
+            </p>
+          </div>
+        )}
+
+        {/* ── Settings tab ── */}
+        {tab === 'settings' && (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-5">
+            <div className="flex items-center gap-2">
+              <Settings className="w-4 h-4 text-slate-400" />
+              <h3 className="text-sm font-semibold text-slate-700">Preferences</h3>
+            </div>
+
+            <div className="border border-slate-100 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Voice command logging</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Store transcripts to debug misheard commands. Nothing logged unless you opt in.
+                  </p>
+                </div>
+                <button
+                  onClick={handleToggleLogging}
+                  disabled={prefSaving}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                    loggingEnabled ? 'bg-slate-900 border-slate-900' : 'bg-slate-200 border-slate-200'
+                  } ${prefSaving ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${loggingEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+            </div>
+
+            <div className="border border-slate-100 rounded-xl p-4 space-y-1">
+              <p className="text-sm font-semibold text-slate-800">Voice commands</p>
+              <div className="space-y-1 mt-2">
+                {[
+                  'Add 500 to food',
+                  'What\'s my balance today?',
+                  'Delete last expense',
+                  'Show recent expenses',
+                  'Give weekly summary',
+                  'Set budget for food to 8000',
+                ].map((cmd) => (
+                  <div key={cmd} className="flex items-center gap-2">
+                    <span className="text-slate-300">›</span>
+                    <span className="text-xs text-slate-600 font-mono">{cmd}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-400">Voxly 1.0 · Voice Finance Tracker</div>
+          </div>
+        )}
+
+      </main>
 
       <ConfirmDialog
         open={Boolean(voiceConfirm)}
         title={voiceConfirm?.title}
         message={voiceConfirm?.message}
         options={voiceConfirm?.options || []}
-        onConfirm={handleVoiceConfirmSelect}
-        onCancel={handleVoiceConfirmCancel}
+        onConfirm={(opt) => {
+          setVoiceConfirm(null);
+          const cmd = opt?.value || opt?.command || opt?.text || opt?.label || opt;
+          if (cmd) sendVoice(String(cmd));
+        }}
+        onCancel={() => { setVoiceConfirm(null); setVoiceStatus('Command cancelled.'); }}
       />
-    </>
+    </div>
   );
 };
 
-// ─── Auth Screen ──────────────────────────────────────────────────────────────
+// ─── Auth screen ──────────────────────────────────────────────────────────────
+
 const AuthScreen = () => {
   const { login, register } = useAuth();
-  const [isDark] = useTheme();
-  const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ email: '', password: '', name: '', confirmPassword: '' });
-  const [error, setError] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [mode, setMode]     = useState('login');
+  const [form, setForm]     = useState({ email: '', password: '', name: '', confirmPassword: '' });
+  const [error, setError]   = useState(null);
+  const [submitting, setSub] = useState(false);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  };
+  const onChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     if (!form.email || !form.password) { setError('Email and password are required.'); return; }
     if (mode === 'register' && form.password !== form.confirmPassword) { setError('Passwords must match.'); return; }
-    setSubmitting(true);
+    setSub(true);
     try {
       if (mode === 'login') await login({ email: form.email, password: form.password });
       else await register({ email: form.email, password: form.password, name: form.name });
     } catch (err) {
       setError(err?.message || 'Authentication failed.');
-    } finally { setSubmitting(false); }
+    } finally { setSub(false); }
   };
 
-  const bg = isDark ? '#0f1623' : '#f8fafc';
-  const cardBg = isDark ? '#1e2433' : '#ffffff';
-  const borderColor = isDark ? '#2d3748' : '#e5e7eb';
-  const textPrimary = isDark ? '#f1f5f9' : '#0f172a';
-  const textSecondary = isDark ? '#94a3b8' : '#6b7280';
-
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: 'DM Sans', sans-serif; background: ${bg}; }
-      `}</style>
-      <div style={{ minHeight: '100dvh', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 16px' }}>
-        <div style={{ width: '100%', maxWidth: 380, background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 16, overflow: 'hidden' }}>
-          {/* Header */}
-          <div style={{ padding: '28px 28px 0', textAlign: 'center' }}>
-            <div style={{ width: 44, height: 44, background: '#2563eb', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-              <Zap size={24} color="white" />
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-100 shadow-lg p-8 space-y-6">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center">
+            <Activity className="w-4.5 h-4.5 text-white w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900 leading-none">Voxly</h1>
+            <p className="text-xs text-slate-500">Voice Finance Tracker</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2.5 rounded-xl">{error}</div>
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Email</label>
+            <input
+              name="email" type="email" autoComplete="email" required
+              value={form.email} onChange={onChange}
+              placeholder="you@example.com"
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
+            />
+          </div>
+
+          {mode === 'register' && (
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Display name</label>
+              <input
+                name="name" type="text"
+                value={form.name} onChange={onChange}
+                placeholder="e.g. Priya"
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
+              />
             </div>
-            <h1 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: textPrimary }}>Voxly</h1>
-            <p style={{ margin: '0 0 24px', fontSize: 13, color: textSecondary }}>Voice-powered personal finance</p>
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Password</label>
+            <input
+              name="password" type="password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required
+              value={form.password} onChange={onChange}
+              placeholder="Enter a strong password"
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
+            />
           </div>
 
-          {/* Tab switcher */}
-          <div style={{ display: 'flex', margin: '0 28px', background: isDark ? '#111827' : '#f3f4f6', borderRadius: 8, padding: 4, marginBottom: 20 }}>
-            {['login', 'register'].map((m) => (
-              <button key={m} onClick={() => { setMode(m); setError(null); }} style={{
-                flex: 1, padding: '7px 0', borderRadius: 6, border: 'none',
-                background: mode === m ? (isDark ? '#1e2433' : 'white') : 'transparent',
-                color: mode === m ? textPrimary : textSecondary,
-                fontSize: 13, fontWeight: mode === m ? 600 : 400, cursor: 'pointer',
-                boxShadow: mode === m ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                transition: 'all 0.15s',
-              }}>
-                {m === 'login' ? 'Sign in' : 'Create account'}
-              </button>
-            ))}
-          </div>
+          {mode === 'register' && (
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Confirm password</label>
+              <input
+                name="confirmPassword" type="password" required
+                value={form.confirmPassword} onChange={onChange}
+                placeholder="Re-enter your password"
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
+              />
+            </div>
+          )}
 
-          <div style={{ padding: '0 28px 28px' }}>
-            {error && (
-              <div style={{ background: isDark ? '#450a0a' : '#fef2f2', border: `1px solid ${isDark ? '#7f1d1d' : '#fecaca'}`, color: isDark ? '#fca5a5' : '#dc2626', borderRadius: 8, padding: '10px 12px', fontSize: 13, marginBottom: 12 }}>
-                {error}
-              </div>
-            )}
+          <button
+            type="submit" disabled={submitting}
+            className="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+          >
+            {submitting ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
+          </button>
+        </form>
 
-            <form onSubmit={handleSubmit}>
-              {mode === 'register' && (
-                <div style={{ marginBottom: 12 }}>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: textSecondary, marginBottom: 6 }}>Display name</label>
-                  <input name="name" type="text" value={form.name} onChange={handleChange} placeholder="Your name"
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${borderColor}`, background: isDark ? '#111827' : '#f9fafb', color: textPrimary, fontSize: 14, outline: 'none' }} />
-                </div>
-              )}
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: textSecondary, marginBottom: 6 }}>Email</label>
-                <input name="email" type="email" required value={form.email} onChange={handleChange} placeholder="you@example.com" autoComplete="email"
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${borderColor}`, background: isDark ? '#111827' : '#f9fafb', color: textPrimary, fontSize: 14, outline: 'none' }} />
-              </div>
-              <div style={{ marginBottom: mode === 'register' ? 12 : 20 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: textSecondary, marginBottom: 6 }}>Password</label>
-                <input name="password" type="password" required value={form.password} onChange={handleChange} placeholder="Enter password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${borderColor}`, background: isDark ? '#111827' : '#f9fafb', color: textPrimary, fontSize: 14, outline: 'none' }} />
-              </div>
-              {mode === 'register' && (
-                <div style={{ marginBottom: 20 }}>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: textSecondary, marginBottom: 6 }}>Confirm password</label>
-                  <input name="confirmPassword" type="password" required value={form.confirmPassword} onChange={handleChange} placeholder="Re-enter password"
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${borderColor}`, background: isDark ? '#111827' : '#f9fafb', color: textPrimary, fontSize: 14, outline: 'none' }} />
-                </div>
-              )}
-              <button type="submit" disabled={submitting} style={{
-                width: '100%', padding: '11px 0', borderRadius: 8, border: 'none',
-                background: submitting ? (isDark ? '#374151' : '#e5e7eb') : '#2563eb',
-                color: submitting ? textSecondary : 'white',
-                fontSize: 14, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer',
-              }}>
-                {submitting ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-};
-
-const LoadingScreen = () => {
-  const [isDark] = useTheme();
-  return (
-    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: isDark ? '#0f1623' : '#f8fafc' }}>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ width: 40, height: 40, background: '#2563eb', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-          <Zap size={22} color="white" />
-        </div>
-        <p style={{ color: isDark ? '#94a3b8' : '#6b7280', fontSize: 14 }}>Loading your workspace…</p>
+        <p className="text-center text-xs text-slate-500">
+          {mode === 'login' ? 'Need an account?' : 'Already have an account?'}{' '}
+          <button
+            type="button"
+            onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}
+            className="font-semibold text-slate-900 hover:underline"
+          >
+            {mode === 'login' ? 'Create one' : 'Sign in'}
+          </button>
+        </p>
       </div>
     </div>
   );
 };
+
+// ─── Loading ──────────────────────────────────────────────────────────────────
+
+const LoadingScreen = () => (
+  <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-8 py-6 text-sm text-slate-500 animate-pulse">
+      Loading your workspace…
+    </div>
+  </div>
+);
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
 
 const ProtectedApp = () => {
   const { user, initializing, logout, preferences, setLoggingPreference } = useAuth();
