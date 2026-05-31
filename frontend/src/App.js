@@ -18,8 +18,6 @@ import {
   Moon,
   LogOut,
   Settings,
-  Bell,
-  ChevronRight,
   ChevronDown,
   Activity,
   Home,
@@ -27,7 +25,6 @@ import {
   AlertTriangle,
   CheckCircle,
   Info,
-  Menu,
   Zap,
   ArrowUpRight,
   ArrowDownRight,
@@ -496,7 +493,6 @@ const SectionCard = ({ title, icon: Icon, children, action, isDark, defaultOpen 
 const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLogging }) => {
   const [isDark, toggleDark] = useTheme();
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [summary, setSummary] = useState(null);
   const [recentExpenses, setRecentExpenses] = useState([]);
@@ -782,7 +778,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
         return (
           <button
             key={item.id}
-            onClick={() => { setActiveTab(item.id); if (mobile) setSidebarOpen(false); }}
+            onClick={() => setActiveTab(item.id)}
             style={{
               display: 'flex',
               flexDirection: mobile ? 'column' : 'row',
