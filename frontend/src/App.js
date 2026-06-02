@@ -191,29 +191,31 @@ const computeDailySpending = (expenses = []) => {
   });
   const byKey = Object.fromEntries(buckets.map(b => [b.key, b]));
   expenses.forEach(e => { if (byKey[e.date]) byKey[e.date].amount += Number(e.amount) || 0; });
-  return buckets.map(({ day, amount }) => ({ day, amount }));
+  return buckets.map(({ day, amount, key }) => ({ day, amount, key }));
 };
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
 const useDarkMode = () => {
-  const [dark, setDark] = useState(() => {
-    let stored = null;
+  const [dark, setDark] = useState(false); // Fix 4: Neutral initial state to prevent hydration mismatch
+
+  useEffect(() => {
     try {
-      stored = typeof localStorage !== 'undefined' ? localStorage.getItem('voxly_theme') : null;
+      const stored = localStorage.getItem('voxly_theme');
+      if (stored) {
+        setDark(stored === 'dark');
+      } else if (window.matchMedia) {
+        setDark(window.matchMedia('(prefers-color-scheme: dark)').matches);
+      }
     } catch {}
-    if (stored) return stored === 'dark';
-    return (
-      typeof window !== 'undefined' &&
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches
-    );
-  });
+  }, []);
+
   const toggle = useCallback(() => setDark(d => {
     const next = !d;
     try { localStorage.setItem('voxly_theme', next ? 'dark' : 'light'); } catch {}
     return next;
   }), []);
+
   return [dark, toggle];
 };
 
@@ -844,8 +846,7 @@ const GLOBAL_CSS = `
   }
 `;
 
-// ─── Inject CSS ───────────────────────────────────────────────────────────────
-
+// Fix 1: CSS Injection moved completely outside the component render phase
 let cssInjected = false;
 function injectCSS() {
   if (cssInjected || typeof document === 'undefined') return;
@@ -853,6 +854,11 @@ function injectCSS() {
   const style = document.createElement('style');
   style.textContent = GLOBAL_CSS;
   document.head.appendChild(style);
+}
+
+// Trigger CSS injection safely on module load (client side only)
+if (typeof window !== 'undefined') {
+  injectCSS();
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -911,12 +917,12 @@ const DonutChart = ({ data, dark }) => {
             
             // Fix: Handle 100% case
             if (sweep >= 359.9) {
-              return <circle key={i} cx={cx} cy={cy} r={R} fill={color} style={{ cursor: 'default' }} />;
+              return <circle key={d.key || i} cx={cx} cy={cy} r={R} fill={color} style={{ cursor: 'default' }} />;
             }
             
             return (
               <path
-                key={i}
+                key={d.key || i}
                 d={`M ${cx} ${cy} L ${start.x} ${start.y} A ${R} ${R} 0 ${large} 1 ${end.x} ${end.y} Z`}
                 fill={color}
                 style={{ cursor: 'default' }}
@@ -932,7 +938,7 @@ const DonutChart = ({ data, dark }) => {
       </div>
       <div className="donut-legend">
         {data.slice(0, 6).map((d, i) => (
-          <div key={i} className="legend-item">
+          <div key={d.key || i} className="legend-item">
             <div className="legend-left">
               <div className="legend-dot" style={{ background: getCatColor(d.category.toLowerCase(), dark) }} />
               <span className="legend-name">{d.category}</span>
@@ -979,6 +985,9 @@ const DashboardTab = ({
     { label: 'Weekly Total',  value: weeklyTotal !== null ? formatINR(weeklyTotal) : '—', sub: dailyAverage !== null ? `Avg ${formatINR(dailyAverage)}/day` : 'Last 7 days', color: '#22c55e', bg: 'rgba(34,197,94,0.10)', Icon: TrendingUp },
     { label: 'Categories',    value: categoryCount, sub: 'Active this month', color: '#f97316', bg: 'rgba(249,115,22,0.10)', Icon: Tag },
   ];
+
+  // Minor Fix: Cache the sliced array to prevent double slicing inside rendering logic
+  const topExpenses = recentExpenses.slice(0, 8);
 
   return (
     <div>
@@ -1050,7 +1059,7 @@ const DashboardTab = ({
                 const pct = (d.amount / maxDaily) * 100;
                 const over = d.amount > 1500;
                 return (
-                  <div key={i} className="bar-col">
+                  <div key={d.key || d.day + i} className="bar-col">
                     <div
                       className="bar-fill"
                       style={{ 
@@ -1084,7 +1093,7 @@ const DashboardTab = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {recentExpenses.slice(0, 8).length > 0 ? recentExpenses.slice(0, 8).map(e => {
+                  {topExpenses.length > 0 ? topExpenses.map(e => {
                     const color = getCatColor(e.category, dark);
                     return (
                       <tr key={e.id}>
@@ -1137,7 +1146,7 @@ const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, month
             const isCurrent = i === monthlyTrend.length - 1;
             const pct = (m.amount / maxMonthly) * 100;
             return (
-              <div key={i} className="month-col">
+              <div key={m.label || i} className="month-col">
                 <div
                   className="month-bar bar-fill"
                   style={{
@@ -1293,7 +1302,7 @@ const BudgetTab = ({ categoryTotals, dark }) => {
       <div className="card">
         <div className="card-title">Monthly Budget Overview</div>
         {rows.length > 0 ? rows.map((r, i) => (
-          <div key={i} className="progress-row">
+          <div key={r.category} className="progress-row">
             <div className="progress-meta">
               <span className="progress-name">{r.category}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1380,7 +1389,6 @@ const SettingsTab = ({ user, dark, toggleDark, loggingEnabled, onToggleLogging, 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLogging }) => {
-  injectCSS();
   const [dark, toggleDark] = useDarkMode();
   const [tab, setTab] = useState('dashboard');
   const [toasts, addToast, removeToast] = useToasts();
@@ -1404,6 +1412,12 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
   const [budgetAlertOverride, setBudgetAlertOverride] = useState(null);
 
   const recognitionRef = useRef(null);
+  
+  // Fix 3: Memory leak / state updates on unmounted component safety check
+  const isMounted = useRef(true);
+  useEffect(() => {
+    return () => { isMounted.current = false; };
+  }, []);
 
   const loadData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -1412,6 +1426,8 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
         getSummary(), getRecent(RECENT_LIMIT),
         getCategoryBreakdown(), getDailyTotals(7), getMonthlyTotals(6),
       ]);
+      
+      if (!isMounted.current) return;
 
       if (summaryR.status === 'fulfilled') setSummary(summaryR.value);
       else setSummary(null);
@@ -1426,10 +1442,12 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
       if (dailyR.status === 'fulfilled') setChartDaily(dailyR.value?.items || dailyR.value?.data || []);
       if (monthlyR.status === 'fulfilled') setChartMonthly(monthlyR.value?.items || monthlyR.value?.data || []);
     } catch (err) {
-      addToast('Failed to load data', 'error');
+      if (isMounted.current) addToast('Failed to load data', 'error');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isMounted.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [addToast]);
 
@@ -1448,7 +1466,10 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     addToast(msg, isErr ? 'error' : 'success');
 
     if (data.budget_alert) setBudgetAlertOverride(data.budget_alert);
+    
+    // Minor Fix: Cancel previous speech to prevent overlapping
     if (msg && 'speechSynthesis' in window && msg.length <= 160) {
+      window.speechSynthesis.cancel(); 
       window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
     }
 
@@ -1476,10 +1497,12 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     setVoiceStatus(`Running: "${cmd}"…`);
     try {
       const resp = await apiSendVoiceCommand(cmd);
-      await handleVoiceResponse(resp);
+      if (isMounted.current) await handleVoiceResponse(resp);
     } catch (err) {
-      addToast(err?.message || 'Command failed.', 'error');
-    } finally { setVoiceProcessing(false); }
+      if (isMounted.current) addToast(err?.message || 'Command failed.', 'error');
+    } finally { 
+      if (isMounted.current) setVoiceProcessing(false); 
+    }
   }, [voiceProcessing, voiceConfirm, handleVoiceResponse, addToast]);
 
   const handleVoiceConfirmSelect = useCallback(async (option) => {
@@ -1489,9 +1512,12 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     setVoiceProcessing(true);
     try {
       const resp = await apiSendVoiceCommand(String(cmd));
-      await handleVoiceResponse(resp);
-    } catch (err) { addToast(err?.message || 'Failed.', 'error'); }
-    finally { setVoiceProcessing(false); }
+      if (isMounted.current) await handleVoiceResponse(resp);
+    } catch (err) { 
+      if (isMounted.current) addToast(err?.message || 'Failed.', 'error'); 
+    } finally { 
+      if (isMounted.current) setVoiceProcessing(false); 
+    }
   }, [handleVoiceResponse, addToast]);
 
   useEffect(() => {
@@ -1500,16 +1526,32 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     const rec = new SR();
     rec.lang = 'en-IN'; rec.continuous = false; rec.interimResults = false;
     rec.onstart = () => { setIsRecording(true); setVoiceStatus('Listening…'); };
-    rec.onerror = (e) => { setIsRecording(false); setVoiceProcessing(false); setVoiceStatus(e.error === 'no-speech' ? 'No speech detected.' : `Error: ${e.error}`); };
+    rec.onerror = (e) => { 
+      setIsRecording(false); 
+      setVoiceProcessing(false); 
+      setVoiceStatus(e.error === 'no-speech' ? 'No speech detected.' : `Error: ${e.error}`); 
+    };
     rec.onend = () => setIsRecording(false);
+    
     rec.onresult = async (e) => {
       const t = e.results[0][0].transcript;
+      if (!isMounted.current) return;
+      
       setVoiceStatus(`Heard: "${t}"`);
       setVoiceProcessing(true);
-      try { const resp = await apiSendVoiceCommand(t); await handleVoiceResponse(resp); }
-      catch (err) { addToast(err?.message || 'Failed.', 'error'); setVoiceConfirm(null); }
-      setVoiceProcessing(false);
+      try { 
+        const resp = await apiSendVoiceCommand(t); 
+        if (isMounted.current) await handleVoiceResponse(resp); 
+      } catch (err) { 
+        if (isMounted.current) {
+          addToast(err?.message || 'Failed.', 'error'); 
+          setVoiceConfirm(null); 
+        }
+      } finally {
+        if (isMounted.current) setVoiceProcessing(false);
+      }
     };
+    
     recognitionRef.current = rec;
     return () => rec.stop();
   }, [handleVoiceResponse, addToast]);
@@ -1518,9 +1560,20 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     if (voiceProcessing || voiceConfirm) return;
     const rec = recognitionRef.current;
     if (!rec) return;
-    if (isRecording) { rec.stop(); return; }
+    
+    if (isRecording) { 
+      rec.stop(); 
+      return; 
+    }
+    
     setVoiceStatus('Preparing…');
-    try { rec.start(); } catch { try { rec.start(); } catch { setVoiceStatus('Mic unavailable.'); } }
+    // Fix 2: Proper catch for InvalidStateError when mic is already engaging
+    try { 
+      rec.start(); 
+    } catch (err) { 
+      rec.stop();
+      setVoiceStatus('Mic error. Please try again.'); 
+    }
   }, [isRecording, voiceProcessing, voiceConfirm]);
 
   const handleAddExpense = useCallback(async ({ amount, category, description }) => {
@@ -1529,15 +1582,23 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
       const r = await apiAddExpense({ amount, category, description });
       addToast(r.message || 'Expense added.', 'success');
       await loadData(true);
-    } catch (err) { addToast(err?.message || 'Failed.', 'error'); }
-    finally { setSubmitting(false); }
+    } catch (err) { 
+      addToast(err?.message || 'Failed.', 'error'); 
+    } finally { 
+      setSubmitting(false); 
+    }
   }, [addToast, loadData]);
 
   const handleToggleLogging = useCallback(async (val) => {
     setPreferenceSaving(true);
-    try { await onToggleLogging(val); addToast(val ? 'Logging enabled.' : 'Logging disabled.', 'success'); }
-    catch (err) { addToast(err?.message || 'Failed to update.', 'error'); }
-    finally { setPreferenceSaving(false); }
+    try { 
+      await onToggleLogging(val); 
+      addToast(val ? 'Logging enabled.' : 'Logging disabled.', 'success'); 
+    } catch (err) { 
+      addToast(err?.message || 'Failed to update.', 'error'); 
+    } finally { 
+      setPreferenceSaving(false); 
+    }
   }, [onToggleLogging, addToast]);
 
   // Derived data
@@ -1712,7 +1773,6 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
 // ─── Auth Screen ──────────────────────────────────────────────────────────────
 
 const AuthScreen = () => {
-  injectCSS();
   const { login, register } = useAuth();
   const [dark] = useDarkMode();
   const [mode, setMode] = useState('login');
@@ -1789,7 +1849,6 @@ const AuthScreen = () => {
 // ─── Loading screen ───────────────────────────────────────────────────────────
 
 const LoadingScreen = () => {
-  injectCSS();
   const [dark] = useDarkMode();
   return (
     <div className={`voxly-root ${dark ? 'voxly-dark' : 'voxly-light'}`}>
