@@ -6,20 +6,29 @@ import React, {
   useState,
 } from 'react';
 import {
-  Activity,
-  BarChart3,
-  Bell,
-  Calendar,
-  ChevronRight,
-  LogOut,
   Mic,
   MicOff,
-  PieChart,
-  Plus,
+  LayoutDashboard,
+  BarChart3,
+  Receipt,
+  PiggyBank,
   Settings,
-  TrendingUp,
-  Wallet,
+  LogOut,
+  Sun,
+  Moon,
+  RefreshCw,
   X,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  Calendar,
+  Tag,
+  ArrowUpRight,
+  ArrowDownRight,
+  Zap,
 } from 'lucide-react';
 
 import {
@@ -34,45 +43,66 @@ import {
 import ConfirmDialog from './components/ConfirmDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-const RECENT_LIMIT = 20;
+const RECENT_LIMIT = 12;
 
 const CATEGORY_COLORS = {
-  food:          { bg: 'bg-orange-100', dot: 'bg-orange-400',  text: 'text-orange-700',  hex: '#f97316' },
-  transport:     { bg: 'bg-blue-100',   dot: 'bg-blue-400',    text: 'text-blue-700',    hex: '#3b82f6' },
-  entertainment: { bg: 'bg-purple-100', dot: 'bg-purple-400',  text: 'text-purple-700',  hex: '#a855f7' },
-  shopping:      { bg: 'bg-pink-100',   dot: 'bg-pink-400',    text: 'text-pink-700',    hex: '#ec4899' },
-  utilities:     { bg: 'bg-teal-100',   dot: 'bg-teal-400',    text: 'text-teal-700',    hex: '#14b8a6' },
-  health:        { bg: 'bg-green-100',  dot: 'bg-green-400',   text: 'text-green-700',   hex: '#22c55e' },
-  personal:      { bg: 'bg-amber-100',  dot: 'bg-amber-400',   text: 'text-amber-700',   hex: '#f59e0b' },
-  savings:       { bg: 'bg-indigo-100', dot: 'bg-indigo-400',  text: 'text-indigo-700',  hex: '#6366f1' },
-  gifts:         { bg: 'bg-rose-100',   dot: 'bg-rose-400',    text: 'text-rose-700',    hex: '#f43f5e' },
-  uncategorized: { bg: 'bg-slate-100',  dot: 'bg-slate-400',   text: 'text-slate-600',   hex: '#94a3b8' },
-  other:         { bg: 'bg-slate-100',  dot: 'bg-slate-400',   text: 'text-slate-600',   hex: '#94a3b8' },
+  food:          { light: '#f97316', dark: '#fb923c' },
+  transport:     { light: '#3b82f6', dark: '#60a5fa' },
+  entertainment: { light: '#a855f7', dark: '#c084fc' },
+  shopping:      { light: '#ec4899', dark: '#f472b6' },
+  utilities:     { light: '#14b8a6', dark: '#2dd4bf' },
+  health:        { light: '#22c55e', dark: '#4ade80' },
+  education:     { light: '#eab308', dark: '#facc15' },
+  rent:          { light: '#ef4444', dark: '#f87171' },
+  savings:       { light: '#8b5cf6', dark: '#a78bfa' },
+  personal:      { light: '#06b6d4', dark: '#22d3ee' },
+  gifts:         { light: '#f43f5e', dark: '#fb7185' },
+  other:         { light: '#64748b', dark: '#94a3b8' },
+  uncategorized: { light: '#94a3b8', dark: '#cbd5e1' },
 };
 
-const BUDGET_GUESSES = {
+const BUDGET_DEFAULTS = {
   food: 10000, transport: 4000, entertainment: 3000,
   shopping: 5000, utilities: 5000, health: 3000,
   personal: 2000, gifts: 2000, savings: 6000,
   uncategorized: 2000, other: 2500,
 };
 
-const TABS = ['overview', 'transactions', 'budgets', 'settings'];
+const NAV_TABS = [
+  { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+  { id: 'analytics', label: 'Analytics',  Icon: BarChart3 },
+  { id: 'expenses',  label: 'Expenses',   Icon: Receipt },
+  { id: 'budget',    label: 'Budget',     Icon: PiggyBank },
+  { id: 'settings',  label: 'Settings',   Icon: Settings },
+];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const QUICK_COMMANDS = [
+  'Add 500 food',
+  'Weekly summary',
+  'My budget',
+  'Delete last',
+];
 
-const fmt = (n) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency', currency: 'INR', maximumFractionDigits: 0,
-  }).format(Number(n) || 0);
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
-const titleCase = (s) =>
-  s ? s.toString().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+const formatINR = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '₹0';
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency', currency: 'INR',
+    minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(Number(value));
+};
 
-const catStyle = (cat) =>
-  CATEGORY_COLORS[(cat || '').toLowerCase()] || CATEGORY_COLORS.other;
+const titleCase = (v) =>
+  v ? v.toString().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+
+const getCatColor = (cat, dark) => {
+  const key = (cat || '').toLowerCase();
+  const entry = CATEGORY_COLORS[key] || CATEGORY_COLORS.other;
+  return dark ? entry.dark : entry.light;
+};
 
 const parseCurrencyValue = (line) => {
   if (!line) return null;
@@ -82,8 +112,8 @@ const parseCurrencyValue = (line) => {
 
 const parseCategoryLine = (line) => {
   if (!line) return [];
-  const [, list = ''] = line.split(':');
-  return list.split(',').map((item) => {
+  const [, listPart = ''] = line.split(':');
+  return listPart.split(',').map((item) => {
     const t = item.trim();
     if (!t) return null;
     const m = t.match(/^(.*?)\s*\((?:₹)?([\d,]+(?:\.\d+)?)\)/i);
@@ -93,22 +123,20 @@ const parseCategoryLine = (line) => {
 };
 
 const parseWeeklySummary = (text) => {
-  const lines = typeof text === 'string'
-    ? text.split(/\n+/).map((l) => l.trim()).filter(Boolean) : [];
+  const lines = typeof text === 'string' ? text.split(/\n+/).map(l => l.trim()).filter(Boolean) : [];
   return {
-    total: parseCurrencyValue(lines.find((l) => l.toLowerCase().includes('weekly spend'))),
-    dailyAverage: parseCurrencyValue(lines.find((l) => l.toLowerCase().includes('daily average'))),
-    topCategories: parseCategoryLine(lines.find((l) => l.toLowerCase().includes('top categories'))),
+    total: parseCurrencyValue(lines.find(l => l.toLowerCase().includes('weekly spend'))),
+    dailyAverage: parseCurrencyValue(lines.find(l => l.toLowerCase().includes('daily average'))),
+    topCategories: parseCategoryLine(lines.find(l => l.toLowerCase().includes('top categories'))),
     lines,
   };
 };
 
 const parseMonthlySummary = (text) => {
-  const lines = typeof text === 'string'
-    ? text.split(/\n+/).map((l) => l.trim()).filter(Boolean) : [];
+  const lines = typeof text === 'string' ? text.split(/\n+/).map(l => l.trim()).filter(Boolean) : [];
   return {
-    total: parseCurrencyValue(lines.find((l) => l.toLowerCase().includes('total'))),
-    topCategories: parseCategoryLine(lines.find((l) => l.toLowerCase().includes('leading categories'))),
+    total: parseCurrencyValue(lines.find(l => l.toLowerCase().includes('total'))),
+    topCategories: parseCategoryLine(lines.find(l => l.toLowerCase().includes('leading categories'))),
     lines,
   };
 };
@@ -117,14 +145,11 @@ const normalizeCategoryTotals = (raw = []) => {
   if (!Array.isArray(raw)) return [];
   return raw.map((entry, i) => {
     if (Array.isArray(entry)) {
-      return { key: `${entry[0]}-${i}`, category: (entry[0] || '').toLowerCase(), amount: Number(entry[1]) || 0 };
+      return { key: String(entry[0] ?? i), category: String(entry[0] ?? '').toLowerCase(), amount: Number(entry[1]) || 0 };
     }
     if (entry && typeof entry === 'object') {
-      return {
-        key: entry.id ?? `cat-${i}`,
-        category: (entry.category ?? entry[0] ?? '').toString().toLowerCase(),
-        amount: Number(entry.total ?? entry.amount ?? entry[1] ?? 0) || 0,
-      };
+      const category = String(entry.category ?? entry[0] ?? '').toLowerCase();
+      return { key: entry.id ?? `cat-${i}`, category, amount: Number(entry.total ?? entry.amount ?? 0) || 0 };
     }
     return null;
   }).filter(Boolean);
@@ -132,7 +157,7 @@ const normalizeCategoryTotals = (raw = []) => {
 
 const mapRecentExpenses = (raw = []) =>
   raw.map((item, i) => ({
-    id: item.id ?? `expense-${i}`,
+    id: item.id ?? `e-${i}`,
     date: item.date ?? '',
     time: item.time ?? '',
     amount: Number(item.amount ?? 0) || 0,
@@ -140,988 +165,1609 @@ const mapRecentExpenses = (raw = []) =>
     description: item.description ?? '',
   }));
 
-const normalizeDailyChart = (raw = []) => {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((entry, i) => {
-    if (!entry) return null;
-    return { day: entry.label ?? entry.day ?? `Day ${i + 1}`, amount: Number(entry.total ?? entry.amount ?? 0) || 0 };
-  }).filter(Boolean);
-};
+const normalizeCategoryChart = (raw = []) =>
+  (Array.isArray(raw) ? raw : []).map((e, i) => ({
+    key: String(e?.category ?? e?.name ?? `c-${i}`),
+    category: titleCase(String(e?.category ?? e?.name ?? `c-${i}`)),
+    amount: Number(e?.total ?? e?.amount ?? 0) || 0,
+  })).filter(Boolean);
 
-const normalizeMonthlyChart = (raw = []) => {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((entry, i) => {
-    if (!entry) return null;
-    return { label: entry.label ?? entry.month ?? `Month ${i + 1}`, amount: Number(entry.total ?? entry.amount ?? 0) || 0 };
-  }).filter(Boolean);
-};
+const normalizeDailyChart = (raw = []) =>
+  (Array.isArray(raw) ? raw : []).map((e, i) => ({
+    day: e?.label ?? e?.day ?? `Day ${i + 1}`,
+    amount: Number(e?.total ?? e?.amount ?? 0) || 0,
+  })).filter(Boolean);
 
-const normalizeCategoryChart = (raw = []) => {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((entry, i) => {
-    if (!entry) return null;
-    const key = (entry.category ?? entry.name ?? `cat-${i}`).toString();
-    return { category: key, amount: Number(entry.total ?? entry.amount ?? 0) || 0 };
-  }).filter(Boolean);
-};
+const normalizeMonthlyChart = (raw = []) =>
+  (Array.isArray(raw) ? raw : []).map((e, i) => ({
+    label: e?.label ?? e?.month ?? `M${i + 1}`,
+    amount: Number(e?.total ?? e?.amount ?? 0) || 0,
+  })).filter(Boolean);
 
 const computeDailySpending = (expenses = []) => {
   const today = new Date();
-  return Array.from({ length: 7 }, (_, offset) => {
+  const buckets = Array.from({ length: 7 }, (_, offset) => {
     const d = new Date(today);
     d.setDate(today.getDate() - (6 - offset));
-    const key = d.toISOString().slice(0, 10);
-    return {
-      key,
-      day: d.toLocaleDateString('en-IN', { weekday: 'short' }),
-      amount: expenses.filter((e) => e.date === key).reduce((s, e) => s + e.amount, 0),
-    };
+    return { key: d.toISOString().slice(0, 10), day: d.toLocaleDateString('en-IN', { weekday: 'short' }), amount: 0 };
   });
+  const byKey = Object.fromEntries(buckets.map(b => [b.key, b]));
+  expenses.forEach(e => { if (byKey[e.date]) byKey[e.date].amount += Number(e.amount) || 0; });
+  return buckets.map(({ day, amount }) => ({ day, amount }));
 };
 
-// ─── Toast ────────────────────────────────────────────────────────────────────
+// ─── Hooks ────────────────────────────────────────────────────────────────────
 
-function Toast({ toast, onDismiss }) {
-  if (!toast) return null;
-  const styles = {
-    success: 'bg-emerald-600 text-white',
-    error: 'bg-red-600 text-white',
-    info: 'bg-slate-800 text-white',
-  };
-  return (
-    <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg ${styles[toast.type] || styles.info}`}>
-      {toast.message}
-      <button onClick={onDismiss} className="opacity-70 hover:opacity-100 ml-1">
-        <X className="w-3.5 h-3.5" />
-      </button>
-    </div>
-  );
-}
+const useDarkMode = () => {
+  const [dark, setDark] = useState(() => {
+    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('voxly_theme') : null;
+    if (stored) return stored === 'dark';
+    return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  const toggle = useCallback(() => setDark(d => {
+    const next = !d;
+    try { localStorage.setItem('voxly_theme', next ? 'dark' : 'light'); } catch {}
+    return next;
+  }), []);
+  return [dark, toggle];
+};
 
-// ─── Alert Banner ─────────────────────────────────────────────────────────────
+const useToasts = () => {
+  const [toasts, setToasts] = useState([]);
+  const timerRefs = useRef({});
 
-function AlertBanner({ alerts, onDismiss }) {
-  if (!alerts || alerts.length === 0) return null;
-  return (
-    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex gap-3 items-start">
-      <Bell className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-      <div className="flex-1 space-y-0.5">
-        {alerts.slice(0, 3).map((msg, i) => (
-          <p key={i} className="text-xs text-amber-800">{msg}</p>
-        ))}
-      </div>
-      <button onClick={onDismiss} className="text-amber-400 hover:text-amber-600">
-        <X className="w-4 h-4" />
-      </button>
-    </div>
-  );
-}
+  const add = useCallback((message, type = 'info') => {
+    const id = Date.now() + Math.random();
+    setToasts(t => [...t.slice(-2), { id, message, type }]);
+    timerRefs.current[id] = setTimeout(() => {
+      setToasts(t => t.filter(x => x.id !== id));
+      delete timerRefs.current[id];
+    }, 4000);
+  }, []);
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+  const remove = useCallback((id) => {
+    clearTimeout(timerRefs.current[id]);
+    delete timerRefs.current[id];
+    setToasts(t => t.filter(x => x.id !== id));
+  }, []);
 
-function StatCard({ label, value, sub, icon: Icon, iconBg }) {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>
-          <p className="text-2xl font-bold text-slate-900 tabular-nums">{value}</p>
-          {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
-        </div>
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${iconBg}`}>
-          <Icon className="w-5 h-5 text-white" />
-        </div>
-      </div>
-    </div>
-  );
-}
+  return [toasts, add, remove];
+};
 
-// ─── Mic Button ───────────────────────────────────────────────────────────────
+// ─── CSS injection ────────────────────────────────────────────────────────────
 
-function MicButton({ isRecording, processing, onToggle, status }) {
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <button
-        onClick={onToggle}
-        disabled={processing}
-        aria-pressed={isRecording}
-        aria-label={isRecording ? 'Stop recording' : 'Start recording'}
-        className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400
-          ${processing ? 'bg-slate-300 cursor-not-allowed' :
-            isRecording ? 'bg-red-500 hover:bg-red-600 shadow-lg shadow-red-200' :
-            'bg-slate-900 hover:bg-slate-700 shadow-lg shadow-slate-200'}`}
-      >
-        {isRecording && (
-          <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-30" />
-        )}
-        {isRecording
-          ? <MicOff className="w-8 h-8 text-white relative z-10" />
-          : <Mic className="w-8 h-8 text-white relative z-10" />}
-      </button>
-      <p className="text-sm font-medium text-slate-500">
-        {processing ? 'Processing…' : isRecording ? 'Tap to stop' : 'Tap to speak'}
-      </p>
-      {status && (
-        <div className="px-3 py-1.5 bg-slate-100 rounded-full text-xs text-slate-600 font-medium text-center max-w-[220px] truncate">
-          {status}
-        </div>
-      )}
-    </div>
-  );
-}
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap');
 
-// ─── Spark Bar (7-day) ────────────────────────────────────────────────────────
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-function SparkBar({ data }) {
-  const max = Math.max(...data.map((d) => d.amount), 1);
-  return (
-    <div className="flex items-end gap-1.5 h-16">
-      {data.map((d, i) => {
-        const pct = (d.amount / max) * 100;
-        const isHigh = d.amount > max * 0.75;
-        return (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1 group">
-            <div className="w-full relative" style={{ height: 52 }}>
-              <div
-                className={`absolute bottom-0 w-full rounded-sm transition-all ${isHigh ? 'bg-orange-400' : 'bg-slate-200 group-hover:bg-slate-300'}`}
-                style={{ height: `${Math.max(pct, 4)}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-slate-400">{d.day}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Donut Chart ──────────────────────────────────────────────────────────────
-
-function DonutChart({ data, total }) {
-  if (!data || data.length === 0) {
-    return <p className="text-sm text-slate-400 text-center py-6">Add expenses to see breakdown</p>;
+  :root {
+    --font-display: 'Syne', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --radius: 14px;
+    --radius-sm: 8px;
+    --radius-lg: 20px;
+    --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    --shadow: 0 4px 24px rgba(0,0,0,0.06);
+    --shadow-lg: 0 8px 40px rgba(0,0,0,0.10);
   }
-  const safeTotal = total || data.reduce((s, d) => s + d.amount, 0) || 1;
+
+  .voxly-light {
+    --bg: #f4f3f0;
+    --bg-card: #ffffff;
+    --bg-card-hover: #fafafa;
+    --bg-sidebar: #1a1a2e;
+    --bg-input: #f9f8f5;
+    --border: #e8e5e0;
+    --text: #1a1a1a;
+    --text-2: #5a5a6a;
+    --text-3: #9a98a8;
+    --accent: #2563eb;
+    --accent-2: #1d4ed8;
+    --accent-muted: rgba(37,99,235,0.10);
+    --sidebar-text: rgba(255,255,255,0.65);
+    --sidebar-active-bg: rgba(255,255,255,0.12);
+    --sidebar-active-text: #fff;
+    --topbar-bg: rgba(244,243,240,0.85);
+    --success: #16a34a;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --toast-success-bg: #f0fdf4; --toast-success-border: #bbf7d0; --toast-success-text: #166534;
+    --toast-error-bg: #fef2f2;   --toast-error-border: #fecaca;   --toast-error-text: #991b1b;
+    --toast-info-bg: #eff6ff;    --toast-info-border: #bfdbfe;    --toast-info-text: #1e40af;
+    --scrollbar: #d1cfc9;
+  }
+  .voxly-dark {
+    --bg: #0f0f13;
+    --bg-card: #1a1a24;
+    --bg-card-hover: #1e1e2a;
+    --bg-sidebar: #13131b;
+    --bg-input: #22222e;
+    --border: #2a2a38;
+    --text: #f0f0f4;
+    --text-2: #8888aa;
+    --text-3: #4a4a60;
+    --accent: #60a5fa;
+    --accent-2: #3b82f6;
+    --accent-muted: rgba(96,165,250,0.12);
+    --sidebar-text: rgba(255,255,255,0.50);
+    --sidebar-active-bg: rgba(255,255,255,0.08);
+    --sidebar-active-text: #fff;
+    --topbar-bg: rgba(15,15,19,0.85);
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --toast-success-bg: #052e16; --toast-success-border: #14532d; --toast-success-text: #86efac;
+    --toast-error-bg: #450a0a;   --toast-error-border: #7f1d1d;   --toast-error-text: #fca5a5;
+    --toast-info-bg: #0c1a3a;    --toast-info-border: #1e3a8a;    --toast-info-text: #93c5fd;
+    --scrollbar: #2a2a38;
+  }
+
+  body, .voxly-root {
+    font-family: var(--font-body);
+    background: var(--bg);
+    color: var(--text);
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .voxly-layout {
+    display: flex;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--bg-sidebar);
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    position: relative;
+    z-index: 10;
+  }
+  .sidebar-logo {
+    padding: 24px 20px 20px;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sidebar-logo-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  .sidebar-nav { flex: 1; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 14px; font-weight: 500;
+    color: var(--sidebar-text);
+    transition: background var(--transition), color var(--transition);
+    border: none; background: transparent; width: 100%; text-align: left;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.85); }
+  .nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); }
+  .nav-item.active svg { opacity: 1; }
+  .nav-item svg { opacity: 0.6; transition: opacity var(--transition); }
+  .nav-item.active svg, .nav-item:hover svg { opacity: 1; }
+  .sidebar-footer { padding: 12px; }
+  .sidebar-signout {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 13px; font-weight: 500;
+    color: rgba(255,255,255,0.40);
+    transition: all var(--transition);
+    border: none; background: transparent; width: 100%;
+  }
+  .sidebar-signout:hover { background: rgba(239,68,68,0.15); color: #f87171; }
+
+  /* ── Main area ── */
+  .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── Top bar ── */
+  .topbar {
+    height: 56px; flex-shrink: 0;
+    background: var(--topbar-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    position: sticky; top: 0; z-index: 5;
+  }
+  .topbar-title {
+    font-family: var(--font-display);
+    font-size: 16px; font-weight: 700;
+    color: var(--text);
+  }
+  .topbar-actions { display: flex; align-items: center; gap: 8px; }
+  .icon-btn {
+    width: 34px; height: 34px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-2);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition);
+  }
+  .icon-btn:hover { color: var(--text); background: var(--bg-card-hover); }
+  .icon-btn.spinning svg { animation: spin 1s linear infinite; }
+  .avatar-btn {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-family: var(--font-display);
+    font-size: 13px; font-weight: 700;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    border: none;
+    transition: opacity var(--transition);
+  }
+  .avatar-btn:hover { opacity: 0.85; }
+
+  /* ── Content ── */
+  .content { flex: 1; overflow-y: auto; padding: 24px; }
+  .content::-webkit-scrollbar { width: 6px; }
+  .content::-webkit-scrollbar-track { background: transparent; }
+  .content::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 99px; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: background var(--transition);
+  }
+  .card-title {
+    font-family: var(--font-display);
+    font-size: 13px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-3);
+    margin-bottom: 16px;
+  }
+
+  /* ── Stat cards ── */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    position: relative; overflow: hidden;
+  }
+  .stat-icon {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 14px;
+    font-size: 16px;
+  }
+  .stat-value {
+    font-family: var(--font-display);
+    font-size: 24px; font-weight: 800;
+    color: var(--text);
+    letter-spacing: -0.5px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .stat-label { font-size: 13px; color: var(--text-2); }
+  .stat-sub { font-size: 12px; color: var(--text-3); margin-top: 4px; }
+
+  /* ── Budget alerts ── */
+  .alert-banner {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    background: rgba(217,119,6,0.10);
+    border: 1px solid rgba(217,119,6,0.25);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--warning);
+  }
+  .alert-dismiss {
+    background: none; border: none; cursor: pointer;
+    color: var(--warning); opacity: 0.7;
+    padding: 0 0 0 8px; flex-shrink: 0;
+  }
+  .alert-dismiss:hover { opacity: 1; }
+
+  /* ── Dashboard grid ── */
+  .dashboard-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; margin-bottom: 20px; }
+  .dashboard-right { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── Voice card ── */
+  .voice-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 20px;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 16px;
+  }
+  .mic-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
+  .mic-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid rgba(239,68,68,0.4);
+    animation: voicePulse 1.8s ease-out infinite;
+  }
+  .mic-ring:nth-child(2) { animation-delay: 0.6s; }
+  .mic-btn {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+    transition: all var(--transition);
+    position: relative; z-index: 1;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  }
+  .mic-btn.idle {
+    background: var(--accent);
+    color: #fff;
+  }
+  .mic-btn.idle:hover { background: var(--accent-2); transform: scale(1.04); }
+  .mic-btn.recording { background: #ef4444; color: #fff; }
+  .mic-btn.processing { background: var(--bg-input); color: var(--text-3); cursor: not-allowed; }
+  .equalizer {
+    display: flex; align-items: flex-end; gap: 3px; height: 24px;
+  }
+  .eq-bar {
+    width: 4px; border-radius: 2px;
+    background: var(--accent);
+    opacity: 0.8;
+  }
+  .eq-bar:nth-child(1) { animation: voiceBar1 0.9s ease-in-out infinite; }
+  .eq-bar:nth-child(2) { animation: voiceBar2 1.1s ease-in-out infinite; }
+  .eq-bar:nth-child(3) { animation: voiceBar3 0.7s ease-in-out infinite; }
+  .eq-bar:nth-child(4) { animation: voiceBar4 1.3s ease-in-out infinite; }
+  .eq-bar:nth-child(5) { animation: voiceBar5 0.85s ease-in-out infinite; }
+  .voice-status {
+    font-size: 13px; color: var(--text-2); text-align: center;
+    min-height: 20px; max-width: 220px; line-height: 1.4;
+  }
+  .quick-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  .chip {
+    padding: 5px 11px; border-radius: 99px;
+    background: var(--accent-muted); color: var(--accent);
+    font-size: 12px; font-weight: 500;
+    border: 1px solid transparent;
+    cursor: pointer; transition: all var(--transition);
+    white-space: nowrap;
+  }
+  .chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* ── Bar chart (daily) ── */
+  .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 140px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .bar-fill {
+    width: 100%; border-radius: 5px 5px 0 0;
+    min-height: 4px;
+    transition: height 0.6s cubic-bezier(0.34,1.56,0.64,1);
+    position: relative;
+    cursor: default;
+  }
+  .bar-fill:hover::after {
+    content: attr(data-amount);
+    position: absolute; bottom: calc(100% + 5px); left: 50%;
+    transform: translateX(-50%);
+    background: var(--text); color: var(--bg);
+    font-size: 11px; font-weight: 600;
+    padding: 3px 7px; border-radius: 5px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .bar-label { font-size: 11px; color: var(--text-3); }
+
+  /* ── Recent table ── */
+  .expense-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .expense-table th {
+    text-align: left; padding: 8px 12px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-3); border-bottom: 1px solid var(--border);
+  }
+  .expense-table td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .expense-table tr:last-child td { border-bottom: none; }
+  .expense-table tr:hover td { background: var(--bg-card-hover); }
+  .cat-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 99px;
+    font-size: 11px; font-weight: 600;
+  }
+  .cat-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .amount-cell { font-weight: 600; font-family: var(--font-display); letter-spacing: -0.3px; }
+  .desc-cell { color: var(--text-2); }
+  .date-cell { color: var(--text-3); font-size: 12px; }
+
+  /* ── Donut chart ── */
+  .donut-wrap { position: relative; width: 180px; height: 180px; flex-shrink: 0; }
+  .donut-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  .donut-total { font-family: var(--font-display); font-size: 20px; font-weight: 800; color: var(--text); }
+  .donut-sub { font-size: 11px; color: var(--text-3); }
+  .donut-legend { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .legend-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+  .legend-left { display: flex; align-items: center; gap: 8px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .legend-name { color: var(--text-2); }
+  .legend-amount { font-weight: 600; font-family: var(--font-display); font-size: 13px; color: var(--text); }
+
+  /* ── Monthly bar chart ── */
+  .month-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
+  .month-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .month-bar { width: 100%; border-radius: 5px 5px 0 0; transition: height 0.6s cubic-bezier(0.34,1.56,0.64,1); }
+  .month-label { font-size: 10px; color: var(--text-3); white-space: nowrap; }
+  .month-delta {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 13px; font-weight: 500; margin-top: 10px;
+  }
+
+  /* ── Collapsible ── */
+  .collapsible-header {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    transition: background var(--transition);
+    border: 1px solid var(--border);
+    width: 100%;
+  }
+  .collapsible-header:hover { background: var(--bg-card-hover); }
+  .collapsible-header.open { border-radius: var(--radius) var(--radius) 0 0; }
+  .collapsible-body {
+    background: var(--bg-card);
+    border: 1px solid var(--border); border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    padding: 16px 20px;
+  }
+  .coll-title { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--text); }
+  .coll-badge { font-size: 13px; font-weight: 600; color: var(--accent); }
+
+  /* ── Add expense form ── */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr 1.5fr auto; gap: 10px; align-items: flex-end; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-label { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; }
+  .form-input, .form-select {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 12px;
+    font-size: 14px; color: var(--text);
+    font-family: var(--font-body);
+    transition: border-color var(--transition), box-shadow var(--transition);
+    outline: none; width: 100%;
+  }
+  .form-input:focus, .form-select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-muted);
+  }
+  .btn-primary {
+    background: var(--accent); color: #fff;
+    border: none; border-radius: var(--radius-sm);
+    padding: 10px 20px;
+    font-size: 14px; font-weight: 600; font-family: var(--font-body);
+    cursor: pointer; transition: all var(--transition);
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-2); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Progress bars (budget) ── */
+  .progress-row { margin-bottom: 16px; }
+  .progress-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .progress-name { font-size: 14px; font-weight: 500; color: var(--text); }
+  .progress-amounts { font-size: 12px; color: var(--text-2); }
+  .progress-pct { font-size: 13px; font-weight: 700; }
+  .progress-track {
+    height: 8px; background: var(--border); border-radius: 99px; overflow: hidden;
+  }
+  .progress-fill { height: 100%; border-radius: 99px; transition: width 0.8s cubic-bezier(0.34,1.56,0.64,1); }
+
+  /* ── Settings card ── */
+  .settings-section { margin-bottom: 24px; }
+  .settings-title { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+  .settings-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row-label { font-size: 14px; color: var(--text); }
+  .settings-row-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+  .toggle-wrap { position: relative; width: 44px; height: 24px; }
+  .toggle-input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; inset: 0;
+    background: var(--border); border-radius: 99px;
+    cursor: pointer; transition: background 0.25s;
+  }
+  .toggle-slider::after {
+    content: '';
+    position: absolute; top: 2px; left: 2px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; transition: transform 0.25s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  }
+  .toggle-input:checked + .toggle-slider { background: var(--accent); }
+  .toggle-input:checked + .toggle-slider::after { transform: translateX(20px); }
+  .profile-avatar {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    font-family: var(--font-display); font-size: 26px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+  }
+  .btn-danger {
+    background: rgba(239,68,68,0.10); color: var(--danger);
+    border: 1px solid rgba(239,68,68,0.20);
+    border-radius: var(--radius-sm); padding: 10px 18px;
+    font-size: 14px; font-weight: 600; font-family: var(--font-body);
+    cursor: pointer; transition: all var(--transition);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.18); }
+  .mono-list {
+    font-family: 'Courier New', monospace; font-size: 12px;
+    color: var(--text-2); line-height: 1.9;
+    background: var(--bg-input); border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+  }
+
+  /* ── Auth screen ── */
+  .auth-root {
+    height: 100dvh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); padding: 16px;
+  }
+  .auth-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 36px 32px;
+    width: 100%; max-width: 400px;
+    box-shadow: var(--shadow-lg);
+  }
+  .auth-logo { font-family: var(--font-display); font-size: 28px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+  .auth-sub { font-size: 14px; color: var(--text-2); margin-bottom: 28px; }
+  .auth-tabs { display: flex; background: var(--bg-input); border-radius: var(--radius-sm); padding: 3px; margin-bottom: 24px; gap: 3px; }
+  .auth-tab {
+    flex: 1; padding: 8px; border-radius: 6px;
+    font-size: 13px; font-weight: 600;
+    border: none; cursor: pointer; transition: all var(--transition);
+    background: transparent; color: var(--text-2);
+  }
+  .auth-tab.active { background: var(--bg-card); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+
+  /* ── Toasts ── */
+  .toast-container {
+    position: fixed; top: 16px; right: 16px;
+    z-index: 1000; display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none;
+  }
+  .toast {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+    padding: 12px 14px; border-radius: var(--radius-sm);
+    border: 1px solid; min-width: 280px; max-width: 380px;
+    font-size: 13px; line-height: 1.4;
+    box-shadow: var(--shadow-lg);
+    pointer-events: all;
+    animation: toastIn 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .toast-close { background: none; border: none; cursor: pointer; flex-shrink: 0; opacity: 0.6; padding: 0; }
+  .toast-close:hover { opacity: 1; }
+
+  /* ── Bottom nav (mobile) ── */
+  .bottom-nav {
+    display: none;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--bg-sidebar);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+    z-index: 20;
+  }
+  .bottom-nav-inner { display: flex; justify-content: space-around; }
+  .bottom-tab {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 4px 12px; border-radius: var(--radius-sm);
+    background: none; border: none; cursor: pointer;
+    color: var(--sidebar-text); font-size: 10px; font-weight: 500;
+    transition: color var(--transition);
+  }
+  .bottom-tab.active { color: var(--accent); }
+
+  /* ── Animations ── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes voicePulse {
+    0%   { width: 80px; height: 80px; opacity: 0.8; }
+    100% { width: 140px; height: 140px; opacity: 0; }
+  }
+  @keyframes voiceBar1 { 0%,100% { height: 8px; } 50% { height: 22px; } }
+  @keyframes voiceBar2 { 0%,100% { height: 14px; } 50% { height: 6px; } }
+  @keyframes voiceBar3 { 0%,100% { height: 6px; } 50% { height: 20px; } }
+  @keyframes voiceBar4 { 0%,100% { height: 18px; } 50% { height: 8px; } }
+  @keyframes voiceBar5 { 0%,100% { height: 10px; } 50% { height: 24px; } }
+  @keyframes toastIn {
+    from { transform: translateX(20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes barIn { from { transform: scaleY(0); transform-origin: bottom; } }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .dashboard-grid { grid-template-columns: 1fr; }
+    .form-grid { grid-template-columns: 1fr 1fr; }
+    .form-grid .btn-primary { grid-column: span 2; justify-content: center; }
+  }
+  @media (max-width: 640px) {
+    .sidebar { display: none; }
+    .bottom-nav { display: block; }
+    .content { padding: 16px 14px calc(80px + env(safe-area-inset-bottom, 0px)); }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .stat-value { font-size: 18px; }
+    .form-grid { grid-template-columns: 1fr; }
+    .form-grid .btn-primary { grid-column: auto; }
+    .expense-table .hide-mobile { display: none; }
+  }
+`;
+
+// ─── Inject CSS ───────────────────────────────────────────────────────────────
+
+let cssInjected = false;
+function injectCSS() {
+  if (cssInjected || typeof document === 'undefined') return;
+  cssInjected = true;
+  const style = document.createElement('style');
+  style.textContent = GLOBAL_CSS;
+  document.head.appendChild(style);
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const Toasts = ({ toasts, remove }) => (
+  <div className="toast-container">
+    {toasts.map(t => (
+      <div
+        key={t.id}
+        className="toast"
+        style={{
+          background: `var(--toast-${t.type}-bg)`,
+          borderColor: `var(--toast-${t.type}-border)`,
+          color: `var(--toast-${t.type}-text)`,
+        }}
+      >
+        <span>{t.message}</span>
+        <button className="toast-close" onClick={() => remove(t.id)}><X size={14} /></button>
+      </div>
+    ))}
+  </div>
+);
+
+const DonutChart = ({ data, dark }) => {
+  const total = data.reduce((s, d) => s + d.amount, 0) || 1;
   let angle = -90;
-  const segments = data.map((d) => {
-    const sweep = (d.amount / safeTotal) * 360;
-    const start = angle;
-    angle += sweep;
-    return { ...d, sweep, startAngle: start };
+  const R = 80, cx = 90, cy = 90, stroke = 28;
+  const polarToXY = (deg, r) => ({
+    x: cx + r * Math.cos((deg * Math.PI) / 180),
+    y: cy + r * Math.sin((deg * Math.PI) / 180),
   });
 
-  const polar = (a, r) => ({
-    x: 50 + r * Math.cos((a * Math.PI) / 180),
-    y: 50 + r * Math.sin((a * Math.PI) / 180),
-  });
+  if (data.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+        <div className="donut-wrap"><svg width={180} height={180} viewBox="0 0 180 180"><circle cx={cx} cy={cy} r={R} fill="none" stroke="var(--border)" strokeWidth={stroke} /></svg></div>
+        <p style={{ fontSize: 13, color: 'var(--text-2)' }}>No expenses yet.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex items-center gap-5">
-      <svg viewBox="0 0 100 100" className="w-28 h-28 flex-shrink-0">
-        {segments.map((seg, i) => {
-          const color = catStyle(seg.category).hex;
-          const percentage = (seg.sweep / 360) * 100;
-          if (percentage >= 99.99) {
+    <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+      <div className="donut-wrap">
+        <svg width={180} height={180} viewBox="0 0 180 180">
+          {data.map((d, i) => {
+            const pct = d.amount / total;
+            const sweep = pct * 360;
+            const large = sweep > 180 ? 1 : 0;
+            const start = polarToXY(angle, R);
+            angle += sweep;
+            const end = polarToXY(angle, R);
+            const color = getCatColor(d.category.toLowerCase(), dark);
+            if (sweep < 1) return null;
             return (
-              <circle
+              <path
                 key={i}
-                cx="50"
-                cy="50"
-                r="40"
+                d={`M ${cx} ${cy} L ${start.x} ${start.y} A ${R} ${R} 0 ${large} 1 ${end.x} ${end.y} Z`}
                 fill={color}
-                stroke="white"
-                strokeWidth="1.5"
+                style={{ cursor: 'default' }}
               />
             );
-          }
-          const s = polar(seg.startAngle, 38);
-          const e = polar(seg.startAngle + seg.sweep - 0.5, 38);
-          const large = seg.sweep > 180 ? 1 : 0;
-          return (
-            <path
-              key={i}
-              d={`M50 50 L${s.x} ${s.y} A38 38 0 ${large} 1 ${e.x} ${e.y}Z`}
-              fill={color}
-              stroke="white"
-              strokeWidth="1.5"
-            />
-          );
-        })}
-        <circle cx="50" cy="50" r="23" fill="white" />
-        <text x="50" y="46" textAnchor="middle" fill="#94a3b8" fontSize="5.5" fontFamily="system-ui">TOTAL</text>
-        <text x="50" y="56" textAnchor="middle" fill="#1e293b" fontSize="7" fontWeight="bold" fontFamily="system-ui">
-          {fmt(safeTotal)}
-        </text>
-      </svg>
-      <div className="flex-1 space-y-1.5 min-w-0">
-        {data.slice(0, 5).map((d, i) => {
-          const style = catStyle(d.category);
-          const pct = safeTotal > 0 ? Math.round((d.amount / safeTotal) * 100) : 0;
-          return (
-            <div key={i} className="flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${style.dot}`} />
-                <span className="text-slate-600 truncate">{titleCase(d.category)}</span>
-              </div>
-              <span className="font-semibold text-slate-700 tabular-nums flex-shrink-0">{pct}%</span>
+          })}
+          <circle cx={cx} cy={cy} r={R - stroke} fill="var(--bg-card)" />
+        </svg>
+        <div className="donut-center">
+          <span className="donut-total">{formatINR(total)}</span>
+          <span className="donut-sub">total</span>
+        </div>
+      </div>
+      <div className="donut-legend">
+        {data.slice(0, 6).map((d, i) => (
+          <div key={i} className="legend-item">
+            <div className="legend-left">
+              <div className="legend-dot" style={{ background: getCatColor(d.category.toLowerCase(), dark) }} />
+              <span className="legend-name">{d.category}</span>
             </div>
-          );
-        })}
+            <span className="legend-amount">{formatINR(d.amount)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
-}
+};
 
-// ─── Monthly Bars ─────────────────────────────────────────────────────────────
-
-function MonthlyBars({ data }) {
-  if (!data || data.length === 0) {
-    return <p className="text-sm text-slate-400 text-center py-6">No monthly data yet</p>;
-  }
-  const max = Math.max(...data.map((d) => d.amount), 1);
+const Collapsible = ({ title, badge, children, defaultOpen = false }) => {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="flex items-end gap-2" style={{ height: 90 }}>
-      {data.map((d, i) => {
-        const pct = (d.amount / max) * 100;
-        const isLatest = i === data.length - 1;
-        return (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1 group">
-            <span className={`text-[9px] tabular-nums transition-opacity ${isLatest ? 'opacity-100 text-slate-600 font-semibold' : 'opacity-0 group-hover:opacity-100 text-slate-400'}`}>
-              {fmt(d.amount)}
-            </span>
-            <div className="w-full relative flex-1">
-              <div
-                className={`absolute bottom-0 w-full rounded-sm transition-all ${isLatest ? 'bg-slate-900' : 'bg-slate-200 group-hover:bg-slate-300'}`}
-                style={{ height: `${Math.max(pct, 3)}%` }}
-              />
+    <div>
+      <button className={`collapsible-header${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)}>
+        <span className="coll-title">{title}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {badge && <span className="coll-badge">{badge}</span>}
+          {open ? <ChevronUp size={16} color="var(--text-3)" /> : <ChevronDown size={16} color="var(--text-3)" />}
+        </div>
+      </button>
+      {open && <div className="collapsible-body">{children}</div>}
+    </div>
+  );
+};
+
+// ─── Tab panels ──────────────────────────────────────────────────────────────
+
+const DashboardTab = ({
+  todayTotal, weeklyTotal, monthlyTotal, categoryCount,
+  dailyAverage, dailySpending, recentExpenses,
+  budgetAlerts, dismissAlert, loading,
+  voiceStatus, voiceProcessing, isRecording, voiceConfirm,
+  toggleRecording, handleQuickCommand,
+  dark,
+}) => {
+  const maxDaily = dailySpending.reduce((m, d) => Math.max(m, d.amount), 0) || 1;
+
+  const statCards = [
+    { label: "Today's Spend", value: formatINR(todayTotal), sub: 'Updated live', color: '#3b82f6', bg: 'rgba(59,130,246,0.10)', Icon: Wallet },
+    { label: 'This Month',    value: formatINR(monthlyTotal), sub: 'Month to date', color: '#a855f7', bg: 'rgba(168,85,247,0.10)', Icon: Calendar },
+    { label: 'Weekly Total',  value: weeklyTotal !== null ? formatINR(weeklyTotal) : '—', sub: dailyAverage !== null ? `Avg ${formatINR(dailyAverage)}/day` : 'Last 7 days', color: '#22c55e', bg: 'rgba(34,197,94,0.10)', Icon: TrendingUp },
+    { label: 'Categories',    value: categoryCount, sub: 'Active this month', color: '#f97316', bg: 'rgba(249,115,22,0.10)', Icon: Tag },
+  ];
+
+  return (
+    <div>
+      {/* Stat cards */}
+      <div className="stat-grid">
+        {statCards.map(({ label, value, sub, color, bg, Icon }) => (
+          <div className="stat-card" key={label}>
+            <div className="stat-icon" style={{ background: bg, color }}><Icon size={18} /></div>
+            <div className="stat-value">{value}</div>
+            <div className="stat-label">{label}</div>
+            <div className="stat-sub">{sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Budget alerts */}
+      {budgetAlerts.map((msg, i) => (
+        <div className="alert-banner" key={i}>
+          <span>⚠️ {msg}</span>
+          <button className="alert-dismiss" onClick={() => dismissAlert(i)}><X size={14} /></button>
+        </div>
+      ))}
+
+      {/* Voice + daily chart */}
+      <div className="dashboard-grid">
+        {/* Voice card */}
+        <div className="voice-card">
+          <div className="card-title" style={{ marginBottom: 0 }}>Voice Assistant</div>
+          <div className="mic-wrap">
+            {isRecording && (
+              <>
+                <div className="mic-ring" style={{ width: 80, height: 80 }} />
+                <div className="mic-ring" style={{ width: 80, height: 80 }} />
+              </>
+            )}
+            <button
+              className={`mic-btn ${voiceProcessing || voiceConfirm ? 'processing' : isRecording ? 'recording' : 'idle'}`}
+              onClick={toggleRecording}
+              disabled={voiceProcessing || Boolean(voiceConfirm)}
+              aria-label={isRecording ? 'Stop' : 'Speak'}
+            >
+              {isRecording ? <MicOff size={32} /> : <Mic size={32} />}
+            </button>
+          </div>
+
+          {isRecording && (
+            <div className="equalizer">
+              {[1,2,3,4,5].map(n => <div key={n} className="eq-bar" style={{ height: 16 }} />)}
             </div>
-            <span className={`text-[10px] ${isLatest ? 'font-semibold text-slate-700' : 'text-slate-400'}`}>
-              {d.label}
+          )}
+
+          <div className="voice-status">
+            {voiceStatus || 'Say "Add 500 to food" or tap a chip below'}
+          </div>
+
+          <div className="quick-chips">
+            {QUICK_COMMANDS.map(cmd => (
+              <button key={cmd} className="chip" onClick={() => handleQuickCommand(cmd)}>{cmd}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Daily chart */}
+        <div className="dashboard-right">
+          <div className="card">
+            <div className="card-title">Last 7 Days</div>
+            <div className="bar-chart">
+              {dailySpending.map((d, i) => {
+                const pct = (d.amount / maxDaily) * 100;
+                const over = d.amount > 1500;
+                return (
+                  <div key={i} className="bar-col">
+                    <div
+                      className="bar-fill"
+                      style={{ height: `${Math.max(pct, 4)}%`, background: over ? '#ef4444' : 'var(--accent)' }}
+                      data-amount={formatINR(d.amount)}
+                    />
+                    <span className="bar-label">{d.day}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Recent table */}
+          <div className="card" style={{ padding: 0 }}>
+            <div style={{ padding: '16px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="card-title" style={{ marginBottom: 0 }}>Recent Expenses</div>
+              {loading && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Updating…</span>}
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="expense-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Category</th>
+                    <th className="hide-mobile">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentExpenses.slice(0, 8).length > 0 ? recentExpenses.slice(0, 8).map(e => {
+                    const color = getCatColor(e.category, dark);
+                    return (
+                      <tr key={e.id}>
+                        <td className="date-cell">{e.date || '—'}</td>
+                        <td className="amount-cell">{formatINR(e.amount)}</td>
+                        <td>
+                          <span className="cat-badge" style={{ background: `${color}22`, color }}>
+                            <span className="cat-dot" style={{ background: color }} />
+                            {titleCase(e.category)}
+                          </span>
+                        </td>
+                        <td className="desc-cell hide-mobile">{e.description || '—'}</td>
+                      </tr>
+                    );
+                  }) : (
+                    <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-3)', padding: '20px 0' }}>No expenses yet</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, monthlySummaryData, dark }) => {
+  const maxMonthly = monthlyTrend.reduce((m, d) => Math.max(m, d.amount), 0) || 1;
+  const monthDelta = monthlyTrend.length >= 2
+    ? monthlyTrend[monthlyTrend.length - 1].amount - monthlyTrend[monthlyTrend.length - 2].amount
+    : null;
+  const monthDeltaPct = monthlyTrend.length >= 2 && monthlyTrend[monthlyTrend.length - 2].amount > 0
+    ? Math.abs(monthDelta) / monthlyTrend[monthlyTrend.length - 2].amount * 100
+    : null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Donut */}
+      <div className="card">
+        <div className="card-title">Spending by Category</div>
+        <DonutChart data={categorySpending} dark={dark} />
+      </div>
+
+      {/* Monthly trend */}
+      <div className="card">
+        <div className="card-title">Monthly Trend (6 months)</div>
+        <div className="month-chart">
+          {monthlyTrend.map((m, i) => {
+            const isCurrent = i === monthlyTrend.length - 1;
+            const pct = (m.amount / maxMonthly) * 100;
+            return (
+              <div key={i} className="month-col">
+                <div
+                  className="month-bar"
+                  style={{
+                    height: `${Math.max(pct, 4)}%`,
+                    background: isCurrent ? 'var(--accent)' : 'var(--border)',
+                    opacity: isCurrent ? 1 : 0.6,
+                  }}
+                  title={formatINR(m.amount)}
+                />
+                <span className="month-label">{m.label}</span>
+              </div>
+            );
+          })}
+        </div>
+        {monthDelta !== null && (
+          <div className="month-delta" style={{ color: monthDelta <= 0 ? 'var(--success)' : 'var(--danger)' }}>
+            {monthDelta <= 0 ? <ArrowDownRight size={16} /> : <ArrowUpRight size={16} />}
+            <span>
+              {monthDelta <= 0 ? 'Down' : 'Up'} {formatINR(Math.abs(monthDelta))}
+              {monthDeltaPct !== null && ` (${monthDeltaPct.toFixed(0)}%)`} vs last month
             </span>
           </div>
-        );
-      })}
+        )}
+      </div>
+
+      {/* Collapsibles */}
+      <Collapsible title="Weekly Summary" badge={weeklySummaryData.total ? formatINR(weeklySummaryData.total) : null} defaultOpen>
+        {weeklySummaryData.lines.length > 0
+          ? weeklySummaryData.lines.map((l, i) => <p key={i} style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7 }}>{l}</p>)
+          : <p style={{ fontSize: 13, color: 'var(--text-3)' }}>Add expenses to see weekly insights.</p>
+        }
+      </Collapsible>
+
+      <Collapsible title="Monthly Summary" badge={monthlySummaryData.total ? formatINR(monthlySummaryData.total) : null}>
+        {monthlySummaryData.lines.length > 0
+          ? monthlySummaryData.lines.map((l, i) => <p key={i} style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7 }}>{l}</p>)
+          : <p style={{ fontSize: 13, color: 'var(--text-3)' }}>Add expenses to see monthly insights.</p>
+        }
+      </Collapsible>
     </div>
   );
-}
+};
 
-// ─── Budget Row ───────────────────────────────────────────────────────────────
-
-function BudgetRow({ category, spent, budget }) {
-  const pct = budget > 0 ? Math.min((spent / budget) * 100, 100) : 0;
-  const over = spent > budget;
-  const warn = !over && pct >= 80;
-  const style = catStyle(category);
-  return (
-    <div className="py-3 border-b border-slate-50 last:border-0">
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${style.dot}`} />
-          <span className="text-sm font-medium text-slate-800">{titleCase(category)}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 tabular-nums">
-            {fmt(spent)} <span className="text-slate-300">/</span> {fmt(budget)}
-          </span>
-          {over && (
-            <span className="text-[10px] font-semibold text-white bg-red-500 px-1.5 py-0.5 rounded">Over</span>
-          )}
-          {warn && !over && (
-            <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Alert</span>
-          )}
-        </div>
-      </div>
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${over ? 'bg-red-400' : warn ? 'bg-amber-400' : 'bg-emerald-400'}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ─── Transaction Row ──────────────────────────────────────────────────────────
-
-function TransactionRow({ expense }) {
-  const style = catStyle(expense.category);
-  return (
-    <div className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0">
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${style.bg}`}>
-        <div className={`w-2.5 h-2.5 rounded-full ${style.dot}`} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-800 truncate">
-          {expense.description || titleCase(expense.category)}
-        </p>
-        <p className="text-xs text-slate-400">{expense.date}{expense.time ? ` · ${expense.time}` : ''}</p>
-      </div>
-      <div className="text-right flex-shrink-0">
-        <p className="text-sm font-semibold text-slate-900 tabular-nums">−{fmt(expense.amount)}</p>
-        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${style.bg} ${style.text}`}>
-          {titleCase(expense.category)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ─── Add Expense Form ─────────────────────────────────────────────────────────
-
-function AddExpenseForm({ onAdd, onCancel, submitting }) {
+const ExpensesTab = ({ recentExpenses, onAddExpense, submitting, dark }) => {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('food');
+  const [note, setNote] = useState('');
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const n = parseFloat(amount);
-    if (!n || n <= 0) return;
-    onAdd(n, category);
+  const handleAdd = async () => {
+    const v = Number(amount);
+    if (!v || v <= 0) return;
+    await onAddExpense({ amount: v, category, description: note });
+    setAmount('');
+    setNote('');
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-800">Add expense</h3>
-        {onCancel && (
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600">
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1.5">Amount (₹)</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Add form */}
+      <div className="card">
+        <div className="card-title">Add Expense</div>
+        <div className="form-grid">
+          <div className="form-group">
+            <label className="form-label">Amount (₹)</label>
             <input
               type="number"
-              min="1"
-              step="any"
+              className="form-input"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={e => setAmount(e.target.value)}
               placeholder="0"
-              className="w-full pl-7 pr-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
+              min="0"
             />
           </div>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1.5">Category</label>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 bg-white"
-          >
-            {Object.keys(BUDGET_GUESSES).filter((c) => c !== 'uncategorized').map((c) => (
-              <option key={c} value={c}>{titleCase(c)}</option>
-            ))}
-          </select>
+          <div className="form-group">
+            <label className="form-label">Category</label>
+            <select className="form-select" value={category} onChange={e => setCategory(e.target.value)}>
+              {['food','transport','entertainment','shopping','utilities','health','personal','other'].map(c => (
+                <option key={c} value={c}>{titleCase(c)}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Note (optional)</label>
+            <input
+              type="text"
+              className="form-input"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="Add a note…"
+            />
+          </div>
+          <button className="btn-primary" onClick={handleAdd} disabled={submitting}>
+            <Plus size={15} />
+            {submitting ? 'Adding…' : 'Add'}
+          </button>
         </div>
       </div>
-      <button
-        type="submit"
-        disabled={!amount || parseFloat(amount) <= 0 || submitting}
-        className="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-      >
-        {submitting ? (
-          <span className="animate-pulse">Adding…</span>
-        ) : (
-          <><Plus className="w-4 h-4" /> Add Expense</>
-        )}
-      </button>
-    </form>
-  );
-}
 
-// ─── Tab Bar ──────────────────────────────────────────────────────────────────
-
-function TabBar({ active, onChange }) {
-  const labels = { overview: 'Overview', transactions: 'Transactions', budgets: 'Budgets', settings: 'Settings' };
-  return (
-    <div className="flex bg-slate-100 rounded-xl p-0.5 gap-0.5">
-      {TABS.map((tab) => (
-        <button
-          key={tab}
-          onClick={() => onChange(tab)}
-          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-            active === tab
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          {labels[tab]}
-        </button>
-      ))}
+      {/* Full table */}
+      <div className="card" style={{ padding: 0 }}>
+        <div style={{ padding: '16px 16px 0' }}><div className="card-title">All Expenses</div></div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="expense-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Amount</th>
+                <th>Category</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentExpenses.length > 0 ? recentExpenses.map(e => {
+                const color = getCatColor(e.category, dark);
+                return (
+                  <tr key={e.id}>
+                    <td className="date-cell">{e.date || '—'}</td>
+                    <td className="date-cell">{e.time || '—'}</td>
+                    <td className="amount-cell">{formatINR(e.amount)}</td>
+                    <td>
+                      <span className="cat-badge" style={{ background: `${color}22`, color }}>
+                        <span className="cat-dot" style={{ background: color }} />
+                        {titleCase(e.category)}
+                      </span>
+                    </td>
+                    <td className="desc-cell">{e.description || '—'}</td>
+                  </tr>
+                );
+              }) : (
+                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-3)', padding: '24px 0' }}>No expenses yet</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
-}
+};
 
-// ─── Dashboard ────────────────────────────────────────────────────────────────
+const BudgetTab = ({ categoryTotals, dark }) => {
+  const rows = useMemo(() => categoryTotals.map(item => {
+    const budget = BUDGET_DEFAULTS[item.category] ?? 4000;
+    const pct = budget ? Math.min((item.amount / budget) * 100, 120) : 0;
+    const color = pct >= 100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#22c55e';
+    return { category: titleCase(item.category), spent: item.amount, budget, pct, color };
+  }), [categoryTotals]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="card">
+        <div className="card-title">Monthly Budget Overview</div>
+        {rows.length > 0 ? rows.map((r, i) => (
+          <div key={i} className="progress-row">
+            <div className="progress-meta">
+              <span className="progress-name">{r.category}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span className="progress-amounts">{formatINR(r.spent)} / {formatINR(r.budget)}</span>
+                <span className="progress-pct" style={{ color: r.color }}>{Math.round(r.pct)}%</span>
+              </div>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${Math.min(r.pct, 100)}%`, background: r.color }} />
+            </div>
+          </div>
+        )) : (
+          <p style={{ fontSize: 13, color: 'var(--text-3)' }}>Add expenses to track budget utilization.</p>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-title">Voice Budget Commands</div>
+        <div className="mono-list">
+          set budget for food to 10000<br />
+          set budget for transport to 4000<br />
+          what's my food budget<br />
+          show my budgets<br />
+          remove budget for entertainment<br />
+          set budget for utilities to 5000 warn me at 70 percent
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SettingsTab = ({ user, dark, toggleDark, loggingEnabled, onToggleLogging, preferenceSaving, onLogout }) => {
+  const displayName = user?.display_name || user?.email || 'User';
+  const initial = (displayName[0] || 'U').toUpperCase();
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="settings-section">
+          <div className="settings-title">Profile</div>
+          <div className="profile-avatar">{initial}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>{displayName}</div>
+          {user?.email && <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 4 }}>{user.email}</div>}
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-title">Appearance</div>
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">Dark Mode</div>
+              <div className="settings-row-sub">Switch between light and dark theme</div>
+            </div>
+            <label className="toggle-wrap">
+              <input type="checkbox" className="toggle-input" checked={dark} onChange={toggleDark} />
+              <span className="toggle-slider" />
+            </label>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-title">Privacy</div>
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">Voice Command Logging</div>
+              <div className="settings-row-sub">Store transcripts to help debug misheard commands. Off by default.</div>
+            </div>
+            <label className="toggle-wrap">
+              <input type="checkbox" className="toggle-input" checked={loggingEnabled} onChange={e => onToggleLogging(e.target.checked)} disabled={preferenceSaving} />
+              <span className="toggle-slider" />
+            </label>
+          </div>
+          {preferenceSaving && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>Saving…</div>}
+        </div>
+
+        <button className="btn-danger" onClick={onLogout}>
+          <LogOut size={15} />
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLogging }) => {
-  const [summary, setSummary]               = useState(null);
+  injectCSS();
+  const [dark, toggleDark] = useDarkMode();
+  const [tab, setTab] = useState('dashboard');
+  const [toasts, addToast, removeToast] = useToasts();
+
+  const [summary, setSummary] = useState(null);
   const [recentExpenses, setRecentExpenses] = useState([]);
   const [chartCategories, setChartCategories] = useState([]);
-  const [chartDaily, setChartDaily]         = useState([]);
-  const [chartMonthly, setChartMonthly]     = useState([]);
-  const [isRecording, setIsRecording]       = useState(false);
-  const [voiceStatus, setVoiceStatus]       = useState('');
+  const [chartDaily, setChartDaily] = useState([]);
+  const [chartMonthly, setChartMonthly] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [preferenceSaving, setPreferenceSaving] = useState(false);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState('');
   const [voiceProcessing, setVoiceProcessing] = useState(false);
-  const [voiceConfirm, setVoiceConfirm]     = useState(null);
-  const [tab, setTab]                       = useState('overview');
-  const [showAddForm, setShowAddForm]       = useState(false);
-  const [submitting, setSubmitting]         = useState(false);
-  const [loading, setLoading]               = useState(true);
-  const [toast, setToast]                   = useState(null);
-  const [budgetWarning, setBudgetWarning]   = useState(null);
-  const [alertsDismissed, setAlertsDismissed] = useState(false);
-  const [prefSaving, setPrefSaving]         = useState(false);
+  const [voiceConfirm, setVoiceConfirm] = useState(null);
+
+  const [dismissedAlerts, setDismissedAlerts] = useState([]);
+  const [budgetAlertOverride, setBudgetAlertOverride] = useState(null);
 
   const recognitionRef = useRef(null);
-  const toastTimer     = useRef(null);
 
-  const displayName = user?.display_name || user?.displayName || user?.email || 'You';
-  const loggingEnabled = Boolean(preferences?.log_opt_in);
-
-  // ── Data loading ────────────────────────────────────────────────────────────
-
-  const loadData = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
+  const loadData = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
-      const [sumR, recR, catR, dayR, monR] = await Promise.allSettled([
+      const [summaryR, recentR, catR, dailyR, monthlyR] = await Promise.allSettled([
         getSummary(), getRecent(RECENT_LIMIT),
         getCategoryBreakdown(), getDailyTotals(7), getMonthlyTotals(6),
       ]);
-      if (sumR.status === 'fulfilled') setSummary(sumR.value);
-      if (recR.status === 'fulfilled') {
-        const p = recR.value;
+
+      if (summaryR.status === 'fulfilled') setSummary(summaryR.value);
+      else setSummary(null);
+
+      if (recentR.status === 'fulfilled') {
+        const p = recentR.value;
         const items = Array.isArray(p) ? p : Array.isArray(p?.items) ? p.items : Array.isArray(p?.recent) ? p.recent : [];
         setRecentExpenses(mapRecentExpenses(items));
-      }
+      } else setRecentExpenses([]);
+
       if (catR.status === 'fulfilled') setChartCategories(catR.value?.items || catR.value?.data || []);
-      if (dayR.status === 'fulfilled') setChartDaily(dayR.value?.items || dayR.value?.data || []);
-      if (monR.status === 'fulfilled') setChartMonthly(monR.value?.items || monR.value?.data || []);
+      if (dailyR.status === 'fulfilled') setChartDaily(dailyR.value?.items || dailyR.value?.data || []);
+      if (monthlyR.status === 'fulfilled') setChartMonthly(monthlyR.value?.items || monthlyR.value?.data || []);
+    } catch (err) {
+      addToast('Failed to load data', 'error');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [user]);
+  }, [addToast]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── Toast helper ─────────────────────────────────────────────────────────────
-
-  const showToast = useCallback((message, type = 'info') => {
-    setToast({ message, type });
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 4500);
-  }, []);
-
-  // ── Voice handling ───────────────────────────────────────────────────────────
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadData(true);
+  }, [loadData]);
 
   const handleVoiceResponse = useCallback(async (data) => {
-    if (!data) { showToast('No response from assistant.', 'error'); return true; }
-    const reply = data.reply || data.message || 'Command processed.';
+    if (!data) { addToast('No response.', 'error'); return; }
+    const msg = data.reply || data.message || 'Done.';
     const isErr = data.error || data.success === false;
-    setVoiceStatus(reply);
-    showToast(reply, isErr ? 'error' : 'info');
+    setVoiceStatus(msg);
+    addToast(msg, isErr ? 'error' : 'success');
 
-    if (data.budget_alert) setBudgetWarning(data.budget_alert);
-    else if (!isErr) setBudgetWarning(null);
-
-    if ('speechSynthesis' in window && reply && reply.length <= 160) {
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(reply));
+    if (data.budget_alert) setBudgetAlertOverride(data.budget_alert);
+    if (msg && 'speechSynthesis' in window && msg.length <= 160) {
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
     }
 
-    const options = data.options || data.option_list || data.clarification_options;
-    if ((data.needs_confirmation || data.needsClarification) && Array.isArray(options) && options.length) {
-      setVoiceConfirm({ title: data.confirmation_prompt || 'Please confirm', message: reply, options });
-      return false;
+    const opts = data.options || data.option_list;
+    if ((data.needs_confirmation || data.needsClarification) && Array.isArray(opts) && opts.length > 0) {
+      setVoiceConfirm({ title: data.confirmation_prompt || 'Confirm', message: msg, options: opts });
+      return;
     }
 
     if (data.dashboard) {
-      setSummary({
-        total_today: data.dashboard.total_today,
-        weekly_summary: data.dashboard.weekly_summary,
-        monthly_summary: data.dashboard.monthly_summary,
-        category_totals: data.dashboard.category_totals,
-        budget_alerts: data.dashboard.budget_alerts,
-        monthly_total: data.dashboard.monthly_total,
-      });
+      setSummary({ total_today: data.dashboard.total_today, weekly_summary: data.dashboard.weekly_summary, monthly_summary: data.dashboard.monthly_summary, category_totals: data.dashboard.category_totals, budget_alerts: data.dashboard.budget_alerts, monthly_total: data.dashboard.monthly_total });
       setRecentExpenses(mapRecentExpenses(data.dashboard.recent_expenses || []));
       if (data.dashboard.chart_series) {
-        const c = data.dashboard.chart_series;
-        setChartCategories(Array.isArray(c.category_breakdown) ? c.category_breakdown : []);
-        setChartDaily(Array.isArray(c.daily_totals) ? c.daily_totals : []);
-        setChartMonthly(Array.isArray(c.monthly_totals) ? c.monthly_totals : []);
-      } else { await loadData(); }
-    } else if (!isErr) { await loadData(); }
-    return true;
-  }, [loadData, showToast]);
+        const cs = data.dashboard.chart_series;
+        setChartCategories(Array.isArray(cs.category_breakdown) ? cs.category_breakdown : []);
+        setChartDaily(Array.isArray(cs.daily_totals) ? cs.daily_totals : []);
+        setChartMonthly(Array.isArray(cs.monthly_totals) ? cs.monthly_totals : []);
+      } else { await loadData(true); }
+    } else if (!isErr) { await loadData(true); }
+  }, [addToast, loadData]);
 
-  const sendVoice = useCallback(async (text) => {
+  const handleQuickCommand = useCallback(async (cmd) => {
+    if (voiceProcessing || voiceConfirm) return;
+    setVoiceProcessing(true);
+    setVoiceStatus(`Running: "${cmd}"…`);
+    try {
+      const resp = await apiSendVoiceCommand(cmd);
+      await handleVoiceResponse(resp);
+    } catch (err) {
+      addToast(err?.message || 'Command failed.', 'error');
+    } finally { setVoiceProcessing(false); }
+  }, [voiceProcessing, voiceConfirm, handleVoiceResponse, addToast]);
+
+  const handleVoiceConfirmSelect = useCallback(async (option) => {
+    setVoiceConfirm(null);
+    const cmd = option?.value || option?.command || option?.text || option?.label || option;
+    if (!cmd || !String(cmd).trim()) { setVoiceStatus('Cancelled.'); return; }
     setVoiceProcessing(true);
     try {
-      const res = await apiSendVoiceCommand(text);
-      await handleVoiceResponse(res);
-    } catch (err) {
-      const msg = err?.message || 'Voice command failed.';
-      setVoiceStatus(msg);
-      showToast(msg, 'error');
-    } finally {
-      setVoiceProcessing(false);
-    }
-  }, [handleVoiceResponse, showToast]);
+      const resp = await apiSendVoiceCommand(String(cmd));
+      await handleVoiceResponse(resp);
+    } catch (err) { addToast(err?.message || 'Failed.', 'error'); }
+    finally { setVoiceProcessing(false); }
+  }, [handleVoiceResponse, addToast]);
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { recognitionRef.current = null; return; }
-    const r = new SR();
-    r.lang = 'en-IN';
-    r.continuous = false;
-    r.interimResults = false;
-    r.onstart = () => { setIsRecording(true); setVoiceStatus('Listening…'); };
-    r.onerror = (e) => {
-      setIsRecording(false); setVoiceProcessing(false);
-      setVoiceStatus(e.error === 'no-speech' ? 'No speech detected.' : `Error: ${e.error}`);
-    };
-    r.onend = () => setIsRecording(false);
-    r.onresult = (e) => {
+    if (!SR) { setVoiceStatus('Voice recognition not supported in this browser.'); return; }
+    const rec = new SR();
+    rec.lang = 'en-IN'; rec.continuous = false; rec.interimResults = false;
+    rec.onstart = () => { setIsRecording(true); setVoiceStatus('Listening…'); };
+    rec.onerror = (e) => { setIsRecording(false); setVoiceProcessing(false); setVoiceStatus(e.error === 'no-speech' ? 'No speech detected.' : `Error: ${e.error}`); };
+    rec.onend = () => setIsRecording(false);
+    rec.onresult = async (e) => {
       const t = e.results[0][0].transcript;
       setVoiceStatus(`Heard: "${t}"`);
-      sendVoice(t);
+      setVoiceProcessing(true);
+      try { const resp = await apiSendVoiceCommand(t); await handleVoiceResponse(resp); }
+      catch (err) { addToast(err?.message || 'Failed.', 'error'); setVoiceConfirm(null); }
+      setVoiceProcessing(false);
     };
-    recognitionRef.current = r;
-    return () => r.stop();
-  }, [sendVoice]);
+    recognitionRef.current = rec;
+    return () => rec.stop();
+  }, [handleVoiceResponse, addToast]);
 
   const toggleRecording = useCallback(() => {
     if (voiceProcessing || voiceConfirm) return;
-    const r = recognitionRef.current;
-    if (!r) { setVoiceStatus('Voice not supported in this browser.'); return; }
-    if (isRecording) { r.stop(); return; }
-    try { r.start(); } catch (_) {}
-  }, [isRecording, voiceConfirm, voiceProcessing]);
+    const rec = recognitionRef.current;
+    if (!rec) return;
+    if (isRecording) { rec.stop(); return; }
+    setVoiceStatus('Preparing…');
+    try { rec.start(); } catch { try { rec.start(); } catch { setVoiceStatus('Mic unavailable.'); } }
+  }, [isRecording, voiceProcessing, voiceConfirm]);
 
-  // ── Add expense ──────────────────────────────────────────────────────────────
-
-  const handleAddExpense = useCallback(async (amount, category) => {
+  const handleAddExpense = useCallback(async ({ amount, category, description }) => {
     setSubmitting(true);
     try {
-      const res = await apiAddExpense({ amount, category });
-      showToast(res.message || `Added ${fmt(amount)} to ${titleCase(category)}`, 'success');
-      setShowAddForm(false);
-      await loadData();
-    } catch (err) {
-      showToast(err.message || 'Failed to add expense.', 'error');
-    } finally {
-      setSubmitting(false);
-    }
-  }, [loadData, showToast]);
+      const r = await apiAddExpense({ amount, category, description });
+      addToast(r.message || 'Expense added.', 'success');
+      await loadData(true);
+    } catch (err) { addToast(err?.message || 'Failed.', 'error'); }
+    finally { setSubmitting(false); }
+  }, [addToast, loadData]);
 
-  // ── Derived data ─────────────────────────────────────────────────────────────
+  const handleToggleLogging = useCallback(async (val) => {
+    setPreferenceSaving(true);
+    try { await onToggleLogging(val); addToast(val ? 'Logging enabled.' : 'Logging disabled.', 'success'); }
+    catch (err) { addToast(err?.message || 'Failed to update.', 'error'); }
+    finally { setPreferenceSaving(false); }
+  }, [onToggleLogging, addToast]);
 
-  const weeklySummary  = useMemo(() => parseWeeklySummary(summary?.weekly_summary), [summary?.weekly_summary]);
-  const monthlySummary = useMemo(() => parseMonthlySummary(summary?.monthly_summary), [summary?.monthly_summary]);
+  // Derived data
+  const weeklySummaryData = useMemo(() => parseWeeklySummary(summary?.weekly_summary), [summary?.weekly_summary]);
+  const monthlySummaryData = useMemo(() => parseMonthlySummary(summary?.monthly_summary), [summary?.monthly_summary]);
   const categoryTotals = useMemo(() => normalizeCategoryTotals(summary?.category_totals), [summary?.category_totals]);
 
-  const todayTotal   = summary ? Number(summary.total_today) || 0 : 0;
-  const monthlyTotal = summary?.monthly_total ?? monthlySummary.total ?? 0;
-  const weeklyTotal  = weeklySummary.total ?? 0;
-  const budgetAlerts = useMemo(() => {
-    const alerts = Array.isArray(summary?.budget_alerts) ? summary.budget_alerts : [];
-    if (budgetWarning && !alerts.includes(budgetWarning)) return [budgetWarning, ...alerts];
-    return alerts;
-  }, [summary?.budget_alerts, budgetWarning]);
-
-  const dailySpending = useMemo(() => {
-    const fromApi = normalizeDailyChart(chartDaily);
-    return fromApi.length > 0 ? fromApi : computeDailySpending(recentExpenses);
-  }, [chartDaily, recentExpenses]);
+  const todayTotal = summary ? Number(summary.total_today) || 0 : 0;
+  const monthlyTotal = summary?.monthly_total ?? monthlySummaryData.total ?? 0;
+  const weeklyTotal = weeklySummaryData.total;
+  const dailyAverage = weeklySummaryData.dailyAverage;
 
   const categorySpending = useMemo(() => {
     const fromApi = normalizeCategoryChart(chartCategories);
     if (fromApi.length > 0) return fromApi;
-    return categoryTotals.map((t) => ({ category: t.category, amount: t.amount }));
+    return categoryTotals.map(item => ({ key: item.category, category: titleCase(item.category), amount: item.amount }));
   }, [chartCategories, categoryTotals]);
+
+  const dailySpending = useMemo(() => {
+    const fromApi = normalizeDailyChart(chartDaily);
+    if (fromApi.length > 0) return fromApi;
+    return computeDailySpending(recentExpenses);
+  }, [chartDaily, recentExpenses]);
 
   const monthlyTrend = useMemo(() => normalizeMonthlyChart(chartMonthly), [chartMonthly]);
 
-  const budgetData = useMemo(() =>
-    categoryTotals
-      .filter((t) => t.amount > 0)
-      .map((t) => ({ category: t.category, spent: t.amount, budget: BUDGET_GUESSES[t.category] ?? 2500 })),
-    [categoryTotals]
-  );
+  const rawAlerts = useMemo(() => {
+    const base = Array.isArray(summary?.budget_alerts) ? summary.budget_alerts : [];
+    if (budgetAlertOverride && !base.includes(budgetAlertOverride)) return [budgetAlertOverride, ...base];
+    return base;
+  }, [summary?.budget_alerts, budgetAlertOverride]);
 
-  // ── Settings ─────────────────────────────────────────────────────────────────
+  const visibleAlerts = rawAlerts.filter((_, i) => !dismissedAlerts.includes(i));
 
-  const handleToggleLogging = useCallback(async () => {
-    setPrefSaving(true);
-    try {
-      await onToggleLogging(!loggingEnabled);
-      showToast(loggingEnabled ? 'Logging disabled.' : 'Logging enabled.', 'success');
-    } catch { showToast('Failed to update preference.', 'error'); }
-    finally { setPrefSaving(false); }
-  }, [loggingEnabled, onToggleLogging, showToast]);
+  const dismissAlert = useCallback((i) => setDismissedAlerts(d => [...d, i]), []);
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  const loggingEnabled = Boolean(preferences?.log_opt_in);
+  const displayName = user?.display_name || user?.email || 'U';
+  const initial = (displayName[0] || 'U').toUpperCase();
+
+  const tabLabel = NAV_TABS.find(t => t.id === tab)?.label ?? 'Dashboard';
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Toast toast={toast} onDismiss={() => setToast(null)} />
-
-      {/* Header */}
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-slate-900 rounded-lg flex items-center justify-center">
-              <Activity className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-bold text-slate-900 tracking-tight">Voxly</span>
+    <div className={`voxly-root ${dark ? 'voxly-dark' : 'voxly-light'}`}>
+      <div className="voxly-layout">
+        {/* Sidebar */}
+        <aside className="sidebar">
+          <div className="sidebar-logo">
+            <div className="sidebar-logo-dot" />
+            Voxly
           </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-600">
-              <div className="w-6 h-6 bg-slate-200 rounded-full flex items-center justify-center text-[10px] font-bold text-slate-600">
-                {displayName.charAt(0).toUpperCase()}
-              </div>
-              <span className="font-medium">{displayName}</span>
-            </div>
-            <button
-              onClick={onLogout}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-2.5 py-1.5 transition-colors"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Logout</span>
+          <nav className="sidebar-nav">
+            {NAV_TABS.map(({ id, label, Icon }) => (
+              <button key={id} className={`nav-item${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
+                <Icon size={17} />
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-footer">
+            <button className="sidebar-signout" onClick={onLogout}>
+              <LogOut size={15} />
+              Sign out
             </button>
           </div>
-        </div>
-      </header>
+        </aside>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
-
-        {/* Budget alerts */}
-        {!alertsDismissed && budgetAlerts.length > 0 && (
-          <AlertBanner alerts={budgetAlerts} onDismiss={() => setAlertsDismissed(true)} />
-        )}
-
-        {/* Voice + stat cards row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {/* Mic card — spans 2 cols on small, 1 on large */}
-          <div className="col-span-2 sm:col-span-1 bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col items-center justify-center gap-4 min-h-[180px]">
-            <MicButton
-              isRecording={isRecording}
-              processing={voiceProcessing}
-              onToggle={toggleRecording}
-              status={voiceStatus}
-            />
-          </div>
-
-          <StatCard label="Today" value={fmt(todayTotal)} icon={Wallet} iconBg="bg-orange-400" />
-          <StatCard label="This week" value={fmt(weeklyTotal)} icon={Calendar} iconBg="bg-blue-500" />
-          <StatCard label="This month" value={fmt(monthlyTotal)} icon={TrendingUp} iconBg="bg-violet-500" />
-        </div>
-
-        {/* 7-day spark bar */}
-        {dailySpending.length > 0 && (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Last 7 days</p>
-            <SparkBar data={dailySpending} />
-          </div>
-        )}
-
-        {/* Tab navigation */}
-        <TabBar active={tab} onChange={setTab} />
-
-        {/* ── Overview tab ── */}
-        {tab === 'overview' && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Donut */}
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <PieChart className="w-4 h-4 text-slate-400" />
-                  <h3 className="text-sm font-semibold text-slate-700">Spending breakdown</h3>
-                </div>
-                <DonutChart data={categorySpending} total={monthlyTotal} />
-              </div>
-
-              {/* Monthly trend */}
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <BarChart3 className="w-4 h-4 text-slate-400" />
-                  <h3 className="text-sm font-semibold text-slate-700">Monthly trend</h3>
-                </div>
-                <MonthlyBars data={monthlyTrend} />
-              </div>
-            </div>
-
-            {/* Recent (preview) */}
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-slate-700">Recent transactions</h3>
-                {loading && <span className="text-xs text-slate-400 animate-pulse">Refreshing…</span>}
-              </div>
-              {recentExpenses.length === 0
-                ? <p className="text-sm text-slate-400 py-4 text-center">No expenses yet</p>
-                : <>
-                    {recentExpenses.slice(0, 5).map((e) => <TransactionRow key={e.id} expense={e} />)}
-                    <button
-                      onClick={() => setTab('transactions')}
-                      className="w-full mt-3 text-xs text-slate-400 hover:text-slate-700 flex items-center justify-center gap-1 transition-colors"
-                    >
-                      View all <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </>
-              }
-            </div>
-          </div>
-        )}
-
-        {/* ── Transactions tab ── */}
-        {tab === 'transactions' && (
-          <div className="space-y-4">
-            {!showAddForm ? (
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-2xl text-sm font-medium text-slate-400 hover:border-slate-300 hover:text-slate-600 flex items-center justify-center gap-2 transition-colors"
-              >
-                <Plus className="w-4 h-4" /> Add expense manually
+        {/* Main */}
+        <div className="main-area">
+          {/* Topbar */}
+          <header className="topbar">
+            <span className="topbar-title">{tabLabel}</span>
+            <div className="topbar-actions">
+              <button className="icon-btn" onClick={toggleDark} title="Toggle theme">
+                {dark ? <Sun size={16} /> : <Moon size={16} />}
               </button>
-            ) : (
-              <AddExpenseForm
-                onAdd={handleAddExpense}
-                onCancel={() => setShowAddForm(false)}
-                submitting={submitting}
+              <button className={`icon-btn${refreshing ? ' spinning' : ''}`} onClick={handleRefresh} title="Refresh">
+                <RefreshCw size={16} />
+              </button>
+              <button className="avatar-btn" onClick={() => setTab('settings')} title="Settings">
+                {initial}
+              </button>
+            </div>
+          </header>
+
+          {/* Content */}
+          <main className="content">
+            {tab === 'dashboard' && (
+              <DashboardTab
+                todayTotal={todayTotal}
+                weeklyTotal={weeklyTotal}
+                monthlyTotal={monthlyTotal}
+                categoryCount={categoryTotals.length}
+                dailyAverage={dailyAverage}
+                dailySpending={dailySpending}
+                recentExpenses={recentExpenses}
+                budgetAlerts={visibleAlerts}
+                dismissAlert={dismissAlert}
+                loading={loading}
+                voiceStatus={voiceStatus}
+                voiceProcessing={voiceProcessing}
+                isRecording={isRecording}
+                voiceConfirm={voiceConfirm}
+                toggleRecording={toggleRecording}
+                handleQuickCommand={handleQuickCommand}
+                dark={dark}
               />
             )}
+            {tab === 'analytics' && (
+              <AnalyticsTab
+                categorySpending={categorySpending}
+                monthlyTrend={monthlyTrend}
+                weeklySummaryData={weeklySummaryData}
+                monthlySummaryData={monthlySummaryData}
+                dark={dark}
+              />
+            )}
+            {tab === 'expenses' && (
+              <ExpensesTab
+                recentExpenses={recentExpenses}
+                onAddExpense={handleAddExpense}
+                submitting={submitting}
+                dark={dark}
+              />
+            )}
+            {tab === 'budget' && (
+              <BudgetTab categoryTotals={categoryTotals} dark={dark} />
+            )}
+            {tab === 'settings' && (
+              <SettingsTab
+                user={user}
+                dark={dark}
+                toggleDark={toggleDark}
+                loggingEnabled={loggingEnabled}
+                onToggleLogging={handleToggleLogging}
+                preferenceSaving={preferenceSaving}
+                onLogout={onLogout}
+              />
+            )}
+          </main>
+        </div>
+      </div>
 
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-slate-700">All transactions</h3>
-                <span className="text-xs text-slate-400">{recentExpenses.length} entries</span>
-              </div>
-              <div className="overflow-y-auto max-h-[480px]">
-                {recentExpenses.length === 0
-                  ? <p className="text-sm text-slate-400 py-6 text-center">No expenses logged yet</p>
-                  : recentExpenses.map((e) => <TransactionRow key={e.id} expense={e} />)
-                }
-              </div>
-            </div>
-          </div>
-        )}
+      {/* Bottom nav (mobile) */}
+      <nav className="bottom-nav">
+        <div className="bottom-nav-inner">
+          {NAV_TABS.map(({ id, label, Icon }) => (
+            <button key={id} className={`bottom-tab${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
+              <Icon size={20} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
 
-        {/* ── Budgets tab ── */}
-        {tab === 'budgets' && (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-700">Monthly budgets</h3>
-              <span className="text-xs text-slate-400">Resets each month</span>
-            </div>
+      {/* Toasts */}
+      <Toasts toasts={toasts} remove={removeToast} />
 
-            {budgetData.length === 0
-              ? <p className="text-sm text-slate-400 py-6 text-center">Add expenses to see budget tracking</p>
-              : budgetData.map((b) => (
-                  <BudgetRow key={b.category} {...b} />
-                ))
-            }
-
-            <p className="text-xs text-slate-400 mt-4 pt-4 border-t border-slate-50 leading-relaxed">
-              Use voice commands to update budgets — e.g.{' '}
-              <em className="text-slate-500">"set budget for transport to 5000 warn me at 75 percent"</em>
-            </p>
-          </div>
-        )}
-
-        {/* ── Settings tab ── */}
-        {tab === 'settings' && (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-5">
-            <div className="flex items-center gap-2">
-              <Settings className="w-4 h-4 text-slate-400" />
-              <h3 className="text-sm font-semibold text-slate-700">Preferences</h3>
-            </div>
-
-            <div className="border border-slate-100 rounded-xl p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">Voice command logging</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Store transcripts to debug misheard commands. Nothing logged unless you opt in.
-                  </p>
-                </div>
-                <button
-                  onClick={handleToggleLogging}
-                  disabled={prefSaving}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
-                    loggingEnabled ? 'bg-slate-900 border-slate-900' : 'bg-slate-200 border-slate-200'
-                  } ${prefSaving ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${loggingEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                </button>
-              </div>
-            </div>
-
-            <div className="border border-slate-100 rounded-xl p-4 space-y-1">
-              <p className="text-sm font-semibold text-slate-800">Voice commands</p>
-              <div className="space-y-1 mt-2">
-                {[
-                  'Add 500 to food',
-                  'What\'s my balance today?',
-                  'Delete last expense',
-                  'Show recent expenses',
-                  'Give weekly summary',
-                  'Set budget for food to 8000',
-                ].map((cmd) => (
-                  <div key={cmd} className="flex items-center gap-2">
-                    <span className="text-slate-300">›</span>
-                    <span className="text-xs text-slate-600 font-mono">{cmd}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="text-xs text-slate-400">Voxly 1.0 · Voice Finance Tracker</div>
-          </div>
-        )}
-
-      </main>
-
+      {/* Confirm dialog */}
       <ConfirmDialog
         open={Boolean(voiceConfirm)}
         title={voiceConfirm?.title}
         message={voiceConfirm?.message}
         options={voiceConfirm?.options || []}
-        onConfirm={(opt) => {
-          setVoiceConfirm(null);
-          const cmd = opt?.value || opt?.command || opt?.text || opt?.label || opt;
-          if (cmd) sendVoice(String(cmd));
-        }}
-        onCancel={() => { setVoiceConfirm(null); setVoiceStatus('Command cancelled.'); }}
+        onConfirm={handleVoiceConfirmSelect}
+        onCancel={() => { setVoiceConfirm(null); setVoiceStatus('Cancelled.'); }}
       />
     </div>
   );
 };
 
-// ─── Auth screen ──────────────────────────────────────────────────────────────
+// ─── Auth Screen ──────────────────────────────────────────────────────────────
 
 const AuthScreen = () => {
+  injectCSS();
   const { login, register } = useAuth();
-  const [mode, setMode]     = useState('login');
-  const [form, setForm]     = useState({ email: '', password: '', name: '', confirmPassword: '' });
-  const [error, setError]   = useState(null);
-  const [submitting, setSub] = useState(false);
+  const [dark] = useDarkMode();
+  const [mode, setMode] = useState('login');
+  const [form, setForm] = useState({ email: '', password: '', name: '', confirmPassword: '' });
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const onChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
+  const handleChange = (e) => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     if (!form.email || !form.password) { setError('Email and password are required.'); return; }
     if (mode === 'register' && form.password !== form.confirmPassword) { setError('Passwords must match.'); return; }
-    setSub(true);
+    setSubmitting(true);
     try {
       if (mode === 'login') await login({ email: form.email, password: form.password });
       else await register({ email: form.email, password: form.password, name: form.name });
-    } catch (err) {
-      setError(err?.message || 'Authentication failed.');
-    } finally { setSub(false); }
+    } catch (err) { setError(err?.message || 'Authentication failed.'); }
+    finally { setSubmitting(false); }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-100 shadow-lg p-8 space-y-6">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center">
-            <Activity className="w-4.5 h-4.5 text-white w-5 h-5" />
+    <div className={`voxly-root ${dark ? 'voxly-dark' : 'voxly-light'}`}>
+      <div className="auth-root">
+        <div className="auth-card">
+          <div className="auth-logo">Voxly</div>
+          <div className="auth-sub">Your voice-powered finance tracker</div>
+
+          <div className="auth-tabs">
+            {['login','register'].map(m => (
+              <button key={m} className={`auth-tab${mode === m ? ' active' : ''}`} onClick={() => { setMode(m); setError(null); }}>
+                {m === 'login' ? 'Sign in' : 'Create account'}
+              </button>
+            ))}
           </div>
-          <div>
-            <h1 className="text-lg font-bold text-slate-900 leading-none">Voxly</h1>
-            <p className="text-xs text-slate-500">Voice Finance Tracker</p>
-          </div>
+
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {error && (
+              <div style={{ background: 'var(--toast-error-bg)', border: '1px solid var(--toast-error-border)', color: 'var(--toast-error-text)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', fontSize: 13 }}>
+                {error}
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input id="auth-email" name="email" type="email" className="form-input" autoComplete="email" required placeholder="you@example.com" value={form.email} onChange={handleChange} />
+            </div>
+            {mode === 'register' && (
+              <div className="form-group">
+                <label className="form-label">Display name</label>
+                <input id="auth-name" name="name" type="text" className="form-input" placeholder="e.g. Priya" value={form.name} onChange={handleChange} />
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Password</label>
+              <input id="auth-password" name="password" type="password" className="form-input" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required placeholder="••••••••" value={form.password} onChange={handleChange} />
+            </div>
+            {mode === 'register' && (
+              <div className="form-group">
+                <label className="form-label">Confirm password</label>
+                <input id="auth-confirm" name="confirmPassword" type="password" className="form-input" required placeholder="••••••••" value={form.confirmPassword} onChange={handleChange} />
+              </div>
+            )}
+            <button type="submit" className="btn-primary" disabled={submitting} style={{ justifyContent: 'center', marginTop: 4 }}>
+              {submitting ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
+          </form>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2.5 rounded-xl">{error}</div>
-          )}
-
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5">Email</label>
-            <input
-              name="email" type="email" autoComplete="email" required
-              value={form.email} onChange={onChange}
-              placeholder="you@example.com"
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
-            />
-          </div>
-
-          {mode === 'register' && (
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Display name</label>
-              <input
-                name="name" type="text"
-                value={form.name} onChange={onChange}
-                placeholder="e.g. Priya"
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
-              />
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5">Password</label>
-            <input
-              name="password" type="password"
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required
-              value={form.password} onChange={onChange}
-              placeholder="Enter a strong password"
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
-            />
-          </div>
-
-          {mode === 'register' && (
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Confirm password</label>
-              <input
-                name="confirmPassword" type="password" required
-                value={form.confirmPassword} onChange={onChange}
-                placeholder="Re-enter your password"
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
-              />
-            </div>
-          )}
-
-          <button
-            type="submit" disabled={submitting}
-            className="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
-          >
-            {submitting ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
-          </button>
-        </form>
-
-        <p className="text-center text-xs text-slate-500">
-          {mode === 'login' ? 'Need an account?' : 'Already have an account?'}{' '}
-          <button
-            type="button"
-            onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}
-            className="font-semibold text-slate-900 hover:underline"
-          >
-            {mode === 'login' ? 'Create one' : 'Sign in'}
-          </button>
-        </p>
       </div>
     </div>
   );
 };
 
-// ─── Loading ──────────────────────────────────────────────────────────────────
+// ─── Loading screen ───────────────────────────────────────────────────────────
 
-const LoadingScreen = () => (
-  <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-8 py-6 text-sm text-slate-500 animate-pulse">
-      Loading your workspace…
+const LoadingScreen = () => {
+  injectCSS();
+  const [dark] = useDarkMode();
+  return (
+    <div className={`voxly-root ${dark ? 'voxly-dark' : 'voxly-light'}`}>
+      <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800, color: 'var(--text)', marginBottom: 8 }}>Voxly</div>
+          <div style={{ fontSize: 13, color: 'var(--text-3)' }}>Loading your workspace…</div>
+        </div>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
