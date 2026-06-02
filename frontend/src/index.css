@@ -3,16 +3,8 @@
 @tailwind utilities;
 
 @layer base {
-	:root {
-		--brand-blue-25: #f5f8ff;
-		--brand-blue-50: #eff6ff;
-		--brand-blue-100: #dbeafe;
-		--brand-blue-900: #1e3a8a;
-		--content-max-width: 80rem;
-	}
-
 	body {
-		@apply bg-[var(--brand-blue-50)] text-slate-900 font-['Inter','Segoe_UI',system-ui,-apple-system,sans-serif] antialiased;
+		@apply bg-brand-50 text-slate-900 font-['Inter','Segoe_UI',system-ui,-apple-system,sans-serif] antialiased;
 	}
 
 	::selection {

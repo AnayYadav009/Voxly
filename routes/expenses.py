@@ -8,6 +8,7 @@ from app import (
     _require_authenticated_user,
     _unauthorized_response,
     _should_log_commands,
+    _error,
 )
 from extensions import limiter
 from services.dashboard import (
@@ -47,7 +48,7 @@ def api_budgets():
             set_budget_limit(category, limit_val, user_id=user["id"])
             return jsonify({"success": True})
         except Exception as e:
-            return jsonify({"error": str(e)}), 400
+            return _error(str(e), 400)
 
     limits = get_budget_limits(user["id"])
     data = {cat: {"limit": lim.limit, "warn_ratio": lim.warn_ratio} for cat, lim in limits.items()}
@@ -123,14 +124,14 @@ def api_add():
         amount = float(data.get("amount", 0))
         category = sanitize_category(data.get("category", ""))
     except (TypeError, ValueError):
-        return jsonify({"error": "Invalid amount or category."}), 400
+        return _error("Invalid amount or category.", 400)
 
     if amount <= 0 or not category:
-        return jsonify({"error": "Amount must be positive and category required."}), 400
+        return _error("Amount must be positive and category required.", 400)
 
     is_valid, error_message = validate_expense(amount, category)
     if not is_valid:
-        return jsonify({"error": error_message}), 400
+        return _error(error_message, 400)
 
     try:
         expense_id = add_expense(amount, category, user_id=user["id"])
@@ -144,7 +145,7 @@ def api_add():
         )
     except Exception as exc:
         log_error("Add expense API failed: %s", exc)
-        return jsonify({"error": "Failed to add expense."}), 500
+        return _error("Failed to add expense.", 500)
 
 
 @expenses_bp.route("/expenses/<int:expense_id>", methods=["PATCH"])
@@ -165,12 +166,12 @@ def api_update_expense(expense_id: int):
             user_id=user["id"],
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "Invalid field value."}), 400
+        return _error("Invalid field value.", 400)
     except Exception as exc:
         log_error("Update expense failed: %s", exc)
-        return jsonify({"error": "Failed to update expense."}), 500
+        return _error("Failed to update expense.", 500)
     if not updated:
-        return jsonify({"error": "Expense not found."}), 404
+        return _error("Expense not found.", 404)
     return jsonify({"message": "Expense updated.", "reload": True})
 
 
@@ -182,7 +183,7 @@ def api_export():
         return _unauthorized_response()
     fmt = request.args.get("format", "csv").lower()
     if fmt != "csv":
-        return jsonify({"error": "Only format=csv is supported."}), 400
+        return _error("Only format=csv is supported.", 400)
     rows = get_all_expenses(user_id=user["id"], limit=10000)
     output = io.StringIO()
     writer = csv.DictWriter(
@@ -364,4 +365,4 @@ def api_dashboard():
         return jsonify(context)
     except Exception as exc:
         log_error("Dashboard endpoint failed: %s", exc)
-        return jsonify({"error": "Failed to load dashboard."}), 500
+        return _error("Failed to load dashboard.", 500)

@@ -4,11 +4,23 @@ Provides logic to evaluate spending against user-defined limits and thresholds,
 generating alerts when budgets are close to or exceed their limits.
 """
 from __future__ import annotations
+import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from config import DEFAULT_BUDGET_WARN_THRESHOLD
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX fallback
+    msvcrt = None
+
+from config import BUDGETS_FILE, DEFAULT_BUDGET_WARN_THRESHOLD
 from database import (
     get_monthly_totals_by_category,
     get_budgets_for_user,
@@ -16,6 +28,44 @@ from database import (
     delete_budget,
 )
 from logger import log_error, log_info
+
+
+def _lock_file(handle, exclusive: bool) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+    elif msvcrt is not None:
+        mode = msvcrt.LK_LOCK if exclusive else msvcrt.LK_RLCK
+        msvcrt.locking(handle.fileno(), mode, 1)
+
+
+def _unlock_file(handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    elif msvcrt is not None:
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def load_budget_config(path: Optional[str] = None) -> Dict[str, Dict[str, float]]:
+    """Load legacy file-backed budget config with a shared read lock."""
+    target = path or BUDGETS_FILE
+    if not os.path.exists(target):
+        return {}
+    with open(target, "r", encoding="utf-8") as handle:
+        _lock_file(handle, exclusive=False)  # fcntl.LOCK_SH on POSIX
+        try:
+            return json.load(handle)
+        finally:
+            _unlock_file(handle)
+
+
+def _write_budget_config(target: str, config: Dict[str, Dict[str, float]]) -> None:
+    """Persist legacy file-backed budget config with an exclusive lock."""
+    with open(target, "w", encoding="utf-8") as handle:
+        _lock_file(handle, exclusive=True)
+        try:
+            json.dump(config, handle, indent=2, sort_keys=True)
+        finally:
+            _unlock_file(handle)
 
 @dataclass
 class BudgetLimit:
@@ -42,7 +92,7 @@ class BudgetStatus:
     level: str
     message: str
 
-def get_budget_limits(user_id: str) -> Dict[str, BudgetLimit]:
+def get_budget_limits(user_id: str, path: Optional[str] = None) -> Dict[str, BudgetLimit]:
     """Retrieve all budget limits for a specific user from DB."""
     if not user_id:
         raise ValueError("user_id is required")

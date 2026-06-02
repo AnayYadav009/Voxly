@@ -320,6 +320,20 @@ function DonutChart({ data, total }) {
       <svg viewBox="0 0 100 100" className="w-28 h-28 flex-shrink-0">
         {segments.map((seg, i) => {
           const color = catStyle(seg.category).hex;
+          const percentage = (seg.sweep / 360) * 100;
+          if (percentage >= 99.99) {
+            return (
+              <circle
+                key={i}
+                cx="50"
+                cy="50"
+                r="40"
+                fill={color}
+                stroke="white"
+                strokeWidth="1.5"
+              />
+            );
+          }
           const s = polar(seg.startAngle, 38);
           const e = polar(seg.startAngle + seg.sweep - 0.5, 38);
           const large = seg.sweep > 180 ? 1 : 0;

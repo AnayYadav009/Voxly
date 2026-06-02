@@ -2,6 +2,7 @@ import os
 import sqlite3
 from typing import Dict, Any, Optional
 from flask import Blueprint, request, jsonify, make_response, g
+from app import _error
 
 from config import ACCESS_TOKEN_EXPIRES_MINUTES, REFRESH_TOKEN_EXPIRES_DAYS
 from database import get_user_by_email, create_user, touch_user_timestamp, get_user_by_id, seed_default_budgets, update_last_logout, revoke_token
@@ -38,7 +39,7 @@ def _extract_bearer_token() -> Optional[str]:
     return request.cookies.get("access_token")
 
 def _unauthorized_response():
-    return jsonify({"error": "Authentication required."}), 401
+    return _error("Authentication required.", 401)
 
 def _require_authenticated_user() -> Optional[Dict[str, Any]]:
     user = getattr(g, "current_user", None)
@@ -93,19 +94,19 @@ def api_auth_register():
     display_name = data.get("name") or data.get("display_name")
 
     if not email or "@" not in email:
-        return jsonify({"error": "A valid email address is required."}), 400
+        return _error("A valid email address is required.", 400)
     if get_user_by_email(email):
-        return jsonify({"error": "Email already in use."}), 409
+        return _error("Email already in use.", 409)
 
     try:
         password_hash = hash_password(password)
     except PasswordPolicyError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return _error(str(exc), 400)
 
     try:
         user = create_user(email=email, password_hash=password_hash, display_name=display_name)
     except sqlite3.IntegrityError:
-        return jsonify({"error": "Email already in use."}), 409
+        return _error("Email already in use.", 409)
 
     seed_default_budgets(user["id"])        # ← seed default budgets for the new user
     return _auth_success_response(user)
@@ -119,11 +120,11 @@ def api_auth_login():
     password = str(data.get("password", ""))
 
     if not email or not password:
-        return jsonify({"error": "Email and password are required."}), 400
+        return _error("Email and password are required.", 400)
 
     user = get_user_by_email(email)
     if not user or not verify_password(password, user.get("password_hash", "")):
-        return jsonify({"error": "Invalid email or password."}), 401
+        return _error("Invalid email or password.", 401)
 
     return _auth_success_response(user)
 

@@ -3,8 +3,16 @@
 Provides database aggregation functions for charts without matplotlib or pandas.
 """
 from typing import Any, Dict, List, Optional
-from database import get_db
+from config import CHART_DIR
+from database import _user_and, _user_where, get_db
 from logger import log_error
+
+
+def ensure_chart_dir() -> str:
+    import os
+
+    os.makedirs(CHART_DIR, exist_ok=True)
+    return CHART_DIR
 
 def fetch_data(query: str, params: tuple = ()) -> List[Dict[str, Any]]:
     """Fetch data from database as list of dictionaries."""
@@ -18,7 +26,7 @@ def fetch_data(query: str, params: tuple = ()) -> List[Dict[str, Any]]:
 
 def get_category_breakdown(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Retrieve total spending broken down by category."""
-    where_clause = "WHERE user_id = ?" if user_id else ""
+    where_clause = _user_where(user_id)
     params: tuple = (user_id,) if user_id else ()
     query = (
         """
@@ -43,15 +51,14 @@ def get_recent_daily_totals(days: int = 7, user_id: Optional[str] = None) -> Lis
     """
     offset = f"-{days - 1} day"
     params: List[Any] = [offset]
-    user_filter = ""
+    user_filter = _user_and(user_id)
     if user_id:
-        user_filter = "AND user_id = ?"
         params.append(user_id)
     return fetch_data(query.format(user_filter=user_filter), tuple(params))
 
 def get_monthly_totals_by_month(months: int = 6, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Retrieve total spending grouped by month for the last N months."""
-    where_clause = "WHERE user_id = ?" if user_id else ""
+    where_clause = _user_where(user_id)
     params: tuple = (user_id,) if user_id else ()
     query = (
         """
@@ -67,8 +74,27 @@ def get_monthly_totals_by_month(months: int = 6, user_id: Optional[str] = None) 
         data = data[-months:]
     return data
 
+
+def plot_category_pie(user_id: Optional[str] = None) -> Optional[str]:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+    return None
+
+
+def plot_daily_bar(user_id: Optional[str] = None) -> Optional[str]:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+    return None
+
 def generate_all_charts(user_id: Optional[str] = None) -> Dict[str, Optional[str]]:
     """Stub function returning empty charts dictionary since PNG charts are deprecated."""
+    ensure_chart_dir()
     return {
         "category": None,
         "daily": None,

@@ -1,10 +1,17 @@
 """Main application entry point and API routes."""
 
 import os
+import json
 from typing import Any, Dict, Optional
 
 from flask import Flask, jsonify, request, send_from_directory, g, make_response
 from flask_cors import CORS
+from flask_limiter import Limiter
+
+try:
+    import redis
+except Exception:  # pragma: no cover - optional runtime dependency fallback
+    redis = None
 
 from auth import decode_access_token
 from config import (
@@ -15,12 +22,16 @@ from config import (
     ALLOWED_ORIGINS,
 )
 from database import (
+    create_table,
     ensure_schema_once,
     get_user_by_id,
     is_token_revoked,
     purge_expired_revocations,
 )
-from extensions import limiter
+from extensions import limiter as _limiter
+from voice_module import parse_expense
+
+limiter: Limiter = _limiter
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
@@ -30,13 +41,58 @@ init_directories()
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 
 _purge_done = False
+_last_command_fallback: Dict[str, Dict[str, Any]] = {}
+
+_redis_client = None
+if redis is not None:
+    try:
+        _redis_client = redis.Redis.from_url(
+            os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+            decode_responses=True,
+        )
+    except Exception:
+        _redis_client = None
 
 limiter.init_app(app)
+
+with app.app_context():
+    create_table()
+
+
+def _error(message: str, status: int):
+    return jsonify(error=message), status
+
+
+def _get_last_command(user_id: str) -> Optional[Dict[str, Any]]:
+    if not user_id:
+        return None
+    key = f"voxly:last_command:{user_id}"
+    if _redis_client is not None:
+        try:
+            raw = _redis_client.get(key)
+            return json.loads(raw) if raw else None
+        except Exception:
+            pass
+    return _last_command_fallback.get(user_id)
+
+
+def _set_last_command(user_id: str, cmd: Dict[str, Any]) -> None:
+    if not user_id:
+        return
+    payload = dict(cmd or {})
+    key = f"voxly:last_command:{user_id}"
+    if _redis_client is not None:
+        try:
+            _redis_client.setex(key, 3600, json.dumps(payload))
+            return
+        except Exception:
+            pass
+    _last_command_fallback[user_id] = payload
 
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
-    return jsonify({"error": "Payload too large. Maximum size is 1MB."}), 413
+    return _error("Payload too large. Maximum size is 1MB.", 413)
 
 
 @app.after_request
@@ -68,7 +124,7 @@ def _extract_bearer_token() -> Optional[str]:
 
 
 def _unauthorized_response():
-    return jsonify({"error": "Authentication required."}), 401
+    return _error("Authentication required.", 401)
 
 
 def _require_authenticated_user() -> Optional[Dict[str, Any]]:
@@ -84,6 +140,17 @@ def _user_preferences_payload(user: Dict[str, Any]) -> Dict[str, Any]:
 
 def _should_log_commands(user: Optional[Dict[str, Any]]) -> bool:
     return COMMAND_LOGGING_ENABLED and bool(user and user.get("log_opt_in"))
+
+
+def _build_dashboard_context(user_id: Optional[str] = None, fields: Optional[set[str]] = None) -> Dict[str, Any]:
+    from services.dashboard import _build_dashboard_context as build_dashboard_context
+
+    return build_dashboard_context(user_id=user_id, fields=fields)
+
+
+@app.route("/api/health")
+def api_health():
+    return jsonify({"status": "ok"})
 
 
 @app.before_request

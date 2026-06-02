@@ -58,7 +58,14 @@ def temp_db(monkeypatch, tmp_path):
         finally:
             conn.close()
 
+    def _mock_create_connection(_db_name: str | None = None):
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    database._local.conn = None
     monkeypatch.setattr(database, "get_db", _mock_get_db)
+    monkeypatch.setattr(database, "create_connection", _mock_create_connection)
     monkeypatch.setattr(summary_module, "get_db", _mock_get_db)
     monkeypatch.setattr(visual_module, "get_db", _mock_get_db)
 
@@ -107,7 +114,12 @@ def mock_parse(monkeypatch):
     return factory
 
 
-# Fixture temp_budget_file removed as budgets are now in DB
+@pytest.fixture
+def temp_budget_file(monkeypatch, tmp_path):
+    import config
+    budget_path = tmp_path / "budgets.json"
+    monkeypatch.setattr(config, "BUDGETS_FILE", str(budget_path))
+    return budget_path
 
 
 def _add_expense(amount: float, category: str, date_str: str, user_id: str = None) -> None:

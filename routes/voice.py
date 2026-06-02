@@ -1,4 +1,5 @@
 import os
+import unicodedata
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
@@ -12,6 +13,9 @@ from app import (
     _unauthorized_response,
     _should_log_commands,
     _user_preferences_payload,
+    _error,
+    _get_last_command,
+    _set_last_command,
 )
 from extensions import limiter
 from services.dashboard import (
@@ -41,12 +45,13 @@ from summary_module import get_monthly_summary_text, get_weekly_summary_text, ge
 from visual_module import generate_all_charts, get_category_breakdown, get_monthly_totals_by_month, get_recent_daily_totals
 from logger import log_error, log_info
 from insight_module import generate_insight
-from voice_nlp import parse_expense
+from voice_module import parse_expense
 
 voice_bp = Blueprint("voice", __name__, url_prefix="/api")
+MAX_COMMAND_LENGTH = 500
 
 @voice_bp.route("/voice_command", methods=["POST"])
-@limiter.limit("30 per minute")
+@limiter.limit("60 per minute")
 def api_voice_command():
     """Handle API voice command."""
     user = _require_authenticated_user()
@@ -54,18 +59,18 @@ def api_voice_command():
         return _unauthorized_response()
     payload: Dict[str, Any] = request.get_json(silent=True) or {}
     command_text = str(payload.get("command", "")).strip()
-    MAX_COMMAND_LENGTH = 500
+    command_text = "".join(ch for ch in command_text if unicodedata.category(ch)[0] != "C")
     if len(command_text) > MAX_COMMAND_LENGTH:
-        return jsonify({"error": "Command too long."}), 400
+        return _error("Command too long.", 400)
     if not command_text:
-        return jsonify({"error": "Command text required."}), 400
+        return _error("Command text required.", 400)
     user_id = user["id"]
 
     try:
         parsed = parse_expense(command_text)
     except Exception as exc:
         log_error("Failed to parse voice command: %s", exc)
-        return jsonify({"error": "Could not understand the command."}), 500
+        return _error("Could not understand the command.", 500)
 
     action = parsed.get("action", "unknown")
     response: Dict[str, Any] = {"action": action}
@@ -147,10 +152,11 @@ def api_voice_command():
             response["reply"] = reply
             response["expense_id"] = expense_id
             response["reload"] = True
+            _set_last_command(user_id, parsed)
             return jsonify(response)
         except Exception as exc:
             log_error("Voice add expense failed: %s", exc)
-            return jsonify({"error": "Failed to add the expense.", "code": "EXPENSE_CREATE_FAILED"}), 500
+            return _error("Failed to add the expense.", 500)
 
     if action == "delete":
         try:
@@ -346,4 +352,3 @@ def api_preferences():
     update_user_log_opt_in(user["id"], value)
     user["log_opt_in"] = 1 if value else 0
     return jsonify({"preferences": _user_preferences_payload(user)})
-

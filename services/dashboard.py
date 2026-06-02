@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from budget_module import (
     BudgetLimit,
@@ -118,19 +118,19 @@ def _safe_limit(value: Any, default: int = 5, *, minimum: int = 1, maximum: int 
 
 def _fetch_totals(user_id: Optional[str] = None) -> Tuple[float, List[Tuple[str, float]]]:
     """Return (total_today, category_totals) in a single DB connection."""
-    from database import get_db, _normalize_date
+    from database import _normalize_date, _user_and, _user_where, get_db
 
     today = _normalize_date()
     with get_db() as conn:
         params_today = [today]
         sql_today = "SELECT COALESCE(SUM(amount), 0) AS total_today FROM expenses WHERE date = ?"
+        sql_today += f" {_user_and(user_id)}"
         if user_id:
-            sql_today += " AND user_id = ?"
             params_today.append(user_id)
         row = conn.execute(sql_today, params_today).fetchone()
         total_today = float(row["total_today"] if row and "total_today" in row else 0)
 
-        where = "WHERE user_id = ?" if user_id else ""
+        where = _user_where(user_id)
         params_cat = (user_id,) if user_id else ()
         rows = conn.execute(
             f"SELECT category, COALESCE(SUM(amount),0) AS total FROM expenses {where} "
@@ -141,11 +141,24 @@ def _fetch_totals(user_id: Optional[str] = None) -> Tuple[float, List[Tuple[str,
     return total_today, category_totals
 
 
-def _build_dashboard_context(user_id: Optional[str] = None) -> Dict[str, Any]:
+def _build_dashboard_context(user_id: Optional[str] = None, fields: Optional[Set[str]] = None) -> Dict[str, Any]:
+    requested = fields or {
+        "total_today",
+        "monthly_total",
+        "category_totals",
+        "recent_expenses",
+        "weekly_summary",
+        "monthly_summary",
+        "budget_status",
+        "budget_alerts",
+        "charts",
+        "chart_series",
+    }
     charts: Dict[str, Any] = {}
-    budget_statuses = evaluate_monthly_budgets(user_id=user_id) if user_id else []
+    needs_budgets = bool({"budget_status", "budget_alerts"} & requested)
+    budget_statuses = evaluate_monthly_budgets(user_id=user_id) if user_id and needs_budgets else []
 
-    if user_id:
+    if user_id and bool({"total_today", "monthly_total", "category_totals", "recent_expenses"} & requested):
         now = datetime.now()
         snapshot = get_dashboard_snapshot(user_id, now.year, now.month)
         total_today = snapshot["total_today"]
@@ -153,18 +166,25 @@ def _build_dashboard_context(user_id: Optional[str] = None) -> Dict[str, Any]:
         category_totals = snapshot["category_totals"]
         recent_expenses = snapshot["recent_expenses"]
     else:
-        total_today, category_totals = _fetch_totals(user_id)
-        monthly_total = get_monthly_total(user_id=user_id)
-        recent_expenses = get_recent_expenses(5, user_id=user_id)
+        total_today, category_totals = _fetch_totals(user_id) if "total_today" in requested or "category_totals" in requested else (0.0, [])
+        monthly_total = get_monthly_total(user_id=user_id) if "monthly_total" in requested else 0.0
+        recent_expenses = get_recent_expenses(5, user_id=user_id) if "recent_expenses" in requested else []
 
-    return {
-        "total_today": total_today,
-        "monthly_total": monthly_total,
-        "category_totals": category_totals,
-        "recent_expenses": recent_expenses,
-        "weekly_summary": get_weekly_summary_text(user_id=user_id),
-        "monthly_summary": get_monthly_summary_text(user_id=user_id),
-        "budget_status": [
+    context: Dict[str, Any] = {}
+    if "total_today" in requested:
+        context["total_today"] = total_today
+    if "monthly_total" in requested:
+        context["monthly_total"] = monthly_total
+    if "category_totals" in requested:
+        context["category_totals"] = category_totals
+    if "recent_expenses" in requested:
+        context["recent_expenses"] = recent_expenses
+    if "weekly_summary" in requested:
+        context["weekly_summary"] = get_weekly_summary_text(user_id=user_id)
+    if "monthly_summary" in requested:
+        context["monthly_summary"] = get_monthly_summary_text(user_id=user_id)
+    if "budget_status" in requested:
+        context["budget_status"] = [
             {
                 "category": status.category,
                 "limit": status.limit,
@@ -175,14 +195,17 @@ def _build_dashboard_context(user_id: Optional[str] = None) -> Dict[str, Any]:
                 "message": status.message,
             }
             for status in budget_statuses
-        ],
-        "budget_alerts": summarize_alerts(budget_statuses),
-        "charts": {
+        ]
+    if "budget_alerts" in requested:
+        context["budget_alerts"] = summarize_alerts(budget_statuses)
+    if "charts" in requested:
+        context["charts"] = {
             key: _to_static_path(path)
             for key, path in charts.items()
-        },
-        "chart_series": _build_chart_series(user_id=user_id),
-    }
+        }
+    if "chart_series" in requested:
+        context["chart_series"] = _build_chart_series(user_id=user_id)
+    return context
 
 
 def _refresh_dashboard(user_id: Optional[str] = None) -> Dict[str, Any]:

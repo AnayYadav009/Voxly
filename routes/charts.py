@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 from app import (
     _require_authenticated_user,
     _unauthorized_response,
+    _error,
 )
 from extensions import limiter
 from services.dashboard import (
@@ -62,6 +63,7 @@ def api_chart_monthly_totals():
     return jsonify(payload)
 
 
+@charts_bp.route("/charts/generate", methods=["POST"])
 @charts_bp.route("/regenerate-charts", methods=["POST"])
 def api_regenerate_charts():
     """Handle API regenerate charts."""
@@ -69,10 +71,10 @@ def api_regenerate_charts():
     if not user:
         return _unauthorized_response()
     try:
-        charts = generate_all_charts()
+        charts = generate_all_charts(user_id=user["id"])
         rel_paths = {key: _to_static_path(path) for key, path in charts.items()}
         log_info("Charts regenerated manually.")
         return jsonify({"status": "ok", "charts": rel_paths})
     except Exception as exc:
         log_error("Failed to regenerate charts: %s", exc)
-        return jsonify({"status": "error"}), 500
+        return _error("Failed to regenerate charts.", 500)

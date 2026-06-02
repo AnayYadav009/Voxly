@@ -7,7 +7,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from config import DATE_FORMAT
-from database import get_db
+from database import get_db, get_daily_totals_for_month
 from logger import log_error
 
 def _fetch_single(query: str, params: Tuple = ()) -> float:
@@ -215,46 +215,15 @@ def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
 
     start, next_month = month_range(now.year, now.month)
 
-    start_str = start.strftime(DATE_FORMAT)
     end_str = next_month.strftime(DATE_FORMAT)
-
-    total = 0.0
-    cat_breakdown = []
-    daily_rows = []
-
-    try:
-        with get_db() as conn:
-            # 1. Total
-            q_total = "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE date >= ? AND date < ?"
-            p_total: List[str] = [start_str, end_str]
-            if user_id:
-                q_total += " AND user_id = ?"
-                p_total.append(user_id)
-            cur = conn.execute(q_total, p_total)
-            row = cur.fetchone()
-            total = float(row["total"] or 0.0) if row else 0.0
-
-            # 2. Category Breakdown
-            conds = ["date >= ?", "date < ?"]
-            p_cat: List[str] = [start_str, end_str]
-            if user_id:
-                conds.append("user_id = ?")
-                p_cat.append(user_id)
-            q_cat = f"SELECT category, COALESCE(SUM(amount), 0) AS total FROM expenses WHERE {' AND '.join(conds)} GROUP BY category ORDER BY total DESC"
-            cur = conn.execute(q_cat, p_cat)
-            cat_breakdown = [dict(row) for row in cur.fetchall()]
-
-            # 3. Daily Totals
-            q_daily = "SELECT date, COALESCE(SUM(amount), 0) AS total FROM expenses WHERE date >= ? AND date < ? "
-            p_daily: List[str] = [start_str, end_str]
-            if user_id:
-                q_daily += "AND user_id = ? "
-                p_daily.append(user_id)
-            q_daily += "GROUP BY date ORDER BY date"
-            cur = conn.execute(q_daily, p_daily)
-            daily_rows = [dict(row) for row in cur.fetchall()]
-    except sqlite3.Error as exc:
-        log_error("Monthly summary DB error: %s", exc)
+    total = get_monthly_total(now.year, now.month, user_id=user_id)
+    cat_breakdown = get_expenses_by_category(
+        start.strftime(DATE_FORMAT),
+        end_str,
+        end_inclusive=False,
+        user_id=user_id,
+    )
+    daily_rows = get_daily_totals_for_month(now.year, now.month, user_id=user_id)
 
     lines = [f"{now.strftime('%B %Y')} total: ₹{total:.2f}"]
     days_elapsed = max((now.date() - start.date()).days + 1, 1)

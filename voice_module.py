@@ -10,8 +10,7 @@ from typing import Any, Dict, Optional
 from config import GROQ_API_KEY, GROQ_MODEL
 from voice_nlp import parse_expense
 
-_engine = None
-_recognizer = None
+_cli_state: Dict[str, Any] = {"engine": None, "recognizer": None}
 last_transcript: Optional[str] = None
 
 
@@ -28,24 +27,25 @@ _TONE_RESPONSES: Dict[str, list] = {
 
 
 def _get_engine():
-    global _engine
-    if _engine is not None:
-        return _engine
+    if _cli_state["engine"] is not None:
+        return _cli_state["engine"]
     try:
         import pyttsx3
-        _engine = pyttsx3.init()
-        voices = _engine.getProperty("voices")
+        engine = pyttsx3.init()
+        voices = engine.getProperty("voices")
         for voice in voices:
             if "zira" in getattr(voice, "name", "").lower() or "female" in getattr(voice, "name", "").lower():
-                _engine.setProperty("voice", voice.id)
+                engine.setProperty("voice", voice.id)
                 break
-        _engine.setProperty("rate", 170)
-        _engine.setProperty("volume", 1.0)
+        engine.setProperty("rate", 170)
+        engine.setProperty("volume", 1.0)
+        _cli_state["engine"] = engine
     except Exception:
-        _engine = None
-    return _engine
+        _cli_state["engine"] = None
+    return _cli_state["engine"]
 
 
+# CLI only - not used by Flask
 def speak(text: str, tone: str = "neutral") -> None:
     if not text:
         return
@@ -64,6 +64,7 @@ def speak(text: str, tone: str = "neutral") -> None:
         time.sleep(0.4)
 
 
+# CLI only - not used by Flask
 def respond(action: str, message: str) -> None:
     tone_map = {
         "add":     "success",
@@ -82,15 +83,14 @@ def respond(action: str, message: str) -> None:
 # ── Microphone input ──────────────────────────────────────────────────────────
 
 def _get_recognizer():
-    global _recognizer
-    if _recognizer is not None:
-        return _recognizer
+    if _cli_state["recognizer"] is not None:
+        return _cli_state["recognizer"]
     try:
         import speech_recognition as sr
-        _recognizer = sr.Recognizer()
+        _cli_state["recognizer"] = sr.Recognizer()
     except Exception:
-        _recognizer = None
-    return _recognizer
+        _cli_state["recognizer"] = None
+    return _cli_state["recognizer"]
 
 
 def _record_audio(duration: float, fs: int):
@@ -104,6 +104,7 @@ def _record_audio(duration: float, fs: int):
     return recording.astype("int16")
 
 
+# CLI only - not used by Flask
 def get_voice_input(
     duration: float = 5.0,
     fs: int = 44100,
@@ -154,10 +155,12 @@ def get_voice_input(
     return ""
 
 
+# CLI only - not used by Flask
 def repeat_last_transcript() -> Optional[str]:
     return last_transcript
 
 
+# CLI only - not used by Flask
 def confirm_amount_flow(
     prompt_text: str = "Please say the amount now.",
     retries: int = 2,
@@ -174,3 +177,20 @@ def confirm_amount_flow(
         except (TypeError, ValueError):
             speak("I still did not hear a number. Try again.", tone="error")
     return None
+
+
+def _detect_action(text: str) -> str:
+    return parse_expense(text).get("action", "unknown")
+
+
+def _extract_amount(text: str) -> Optional[float]:
+    amount = parse_expense(text).get("amount")
+    try:
+        return float(amount) if amount is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_category_and_description(text: str) -> tuple[Optional[str], Optional[str]]:
+    parsed = parse_expense(text)
+    return parsed.get("category"), parsed.get("description")

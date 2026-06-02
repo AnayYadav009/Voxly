@@ -38,6 +38,7 @@ _ALLOWED_ORIGINS_RAW = (
 )
 # --- Rate limiting: swap to redis:// in production for distributed deployments ---
 RATE_LIMIT_STORAGE_URI = os.environ.get("VOXLY_RATE_LIMIT_STORAGE_URI", "memory://")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 _raw_jwt_secret = os.environ.get("VOXLY_JWT_SECRET", "")
 _is_dev = os.environ.get("FLASK_ENV", "production") == "development"
 
@@ -82,4 +83,3 @@ def init_directories() -> None:
             "Set the VOXLY_JWT_SECRET environment variable before deploying.",
             stacklevel=2,
         )
-

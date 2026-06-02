@@ -267,11 +267,6 @@ def create_table() -> None:
 
 
 # Automatically ensure schema on import in normal runs.
-# Tests may monkeypatch `create_connection`, so skip automatic creation
-# when running under pytest or when explicitly requested via env var.
-_skip_auto = os.environ.get("VOXLY_SKIP_AUTOCREATE", "false").lower() in {"1", "true", "yes"}
-_running_pytest = any(k.startswith("PYTEST") for k in os.environ.keys())
-
 # Ensure schema lazily instead of on import, so we don't start Tokio before fork
 _schema_ensured = False
 def ensure_schema_once():
@@ -281,6 +276,16 @@ def ensure_schema_once():
             create_table()
         finally:
             _schema_ensured = True
+
+def _user_where(user_id: Optional[str], prefix: str = "WHERE") -> str:
+    if not user_id:
+        return ""
+    return f"{prefix} user_id = ?"
+
+def _user_and(user_id: Optional[str]) -> str:
+    if not user_id:
+        return ""
+    return "AND user_id = ?"
 
 def _normalize_date(date: Optional[str] = None) -> str:
     if date:
@@ -615,7 +620,7 @@ def get_total_by_category(user_id: Optional[str] = None) -> List[Tuple[str, floa
                 ORDER BY total DESC
                 """
             )
-            where_clause = "WHERE user_id = ?" if user_id else ""
+            where_clause = _user_where(user_id)
             query = sql.format(where=where_clause)
             params: Tuple[Any, ...] = (user_id,) if user_id else ()
             cur = conn.execute(query, params)
@@ -639,7 +644,7 @@ def get_recent_expenses(limit: int = 5, user_id: Optional[str] = None) -> List[D
                 LIMIT ?
                 """
             )
-            where_clause = "WHERE user_id = ?" if user_id else ""
+            where_clause = _user_where(user_id)
             if user_id:
                 params.append(user_id)
             params.append(limit)
@@ -655,7 +660,7 @@ def delete_last_expense(user_id: Optional[str] = None) -> Optional[int]:
     try:
         with get_db() as conn:
             sql = "SELECT id FROM expenses {where} ORDER BY date DESC, time DESC, id DESC LIMIT 1"
-            where_clause = "WHERE user_id = ?" if user_id else ""
+            where_clause = _user_where(user_id)
             params: Tuple[Any, ...] = (user_id,) if user_id else ()
             cur = conn.execute(sql.format(where=where_clause), params)
             row = cur.fetchone()
@@ -972,7 +977,7 @@ def get_all_expenses(
                 LIMIT ? OFFSET ?
                 """
             )
-            where_clause = "WHERE user_id = ?" if user_id else ""
+            where_clause = _user_where(user_id)
             params: Tuple[Any, ...] = ((user_id, limit, offset) if user_id else (limit, offset))
             cur = conn.execute(sql.format(where=where_clause), params)
             rows = cur.fetchall()
@@ -1050,6 +1055,29 @@ def get_dashboard_snapshot(user_id: str, year: int, month: int) -> dict:
         "all_time_category_totals": all_time_category_totals,
         "recent_expenses": recent_expenses
     }
+
+
+def get_daily_totals_for_month(year: int, month: int, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Return daily totals for a calendar month."""
+    from utils.dates import month_range
+
+    start, end = month_range(year, month)
+    sql = (
+        "SELECT date, COALESCE(SUM(amount), 0) AS total "
+        "FROM expenses WHERE date >= ? AND date < ? "
+        f"{_user_and(user_id)} GROUP BY date ORDER BY date"
+    )
+    params: List[Any] = [start.strftime(DATE_FORMAT), end.strftime(DATE_FORMAT)]
+    if user_id:
+        params.append(user_id)
+    try:
+        with get_db() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+    except sqlite3.Error as exc:
+        log_error("Failed to fetch daily totals for month: %s", exc)
+        raise
+
     """Get user budgets."""
     if not user_id:
         return []
@@ -1315,4 +1343,3 @@ class ExpenseRepository:
     save_insight = staticmethod(save_insight)
     seed_default_budgets = staticmethod(seed_default_budgets)
     get_user_budget_limits = staticmethod(get_user_budget_limits)
-

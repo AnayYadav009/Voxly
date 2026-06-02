@@ -1,5 +1,7 @@
 # Python
 __pycache__/
+# Python Caching
+*.pyc
 *.py[cod]
 *.pyo
 *.pyd
@@ -17,6 +19,8 @@ env/
 ENV/
 
 # Database
+expenses.db
+budgets.json
 *.db
 *.db-journal
 *.db-shm
