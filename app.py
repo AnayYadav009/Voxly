@@ -22,7 +22,6 @@ from config import (
     ALLOWED_ORIGINS,
 )
 from database import (
-    create_table,
     ensure_schema_once,
     get_user_by_id,
     is_token_revoked,
@@ -54,9 +53,6 @@ if redis is not None:
         _redis_client = None
 
 limiter.init_app(app)
-
-with app.app_context():
-    create_table()
 
 
 def _error(message: str, status: int):
@@ -123,6 +119,21 @@ def _extract_bearer_token() -> Optional[str]:
     return request.cookies.get("access_token")
 
 
+def _request_needs_database(token: Optional[str]) -> bool:
+    """Avoid initializing Turso/libsql for probes, preflights, and anonymous 401s."""
+    if request.method == "OPTIONS":
+        return False
+    if request.path == "/api/health":
+        return False
+    if token:
+        return True
+    return request.path in {
+        "/api/auth/login",
+        "/api/auth/register",
+        "/api/auth/refresh",
+    }
+
+
 def _unauthorized_response():
     return _error("Authentication required.", 401)
 
@@ -157,13 +168,15 @@ def api_health():
 def attach_current_user() -> None:
     """Attach current user."""
     global _purge_done
+    g.current_user = None
+    g.token_jti = None
+    token = _extract_bearer_token()
+    if not _request_needs_database(token):
+        return
     ensure_schema_once()
     if not _purge_done:
         _purge_done = True
         purge_expired_revocations()
-    g.current_user = None
-    g.token_jti = None
-    token = _extract_bearer_token()
     if not token:
         return
     result = decode_access_token(token)

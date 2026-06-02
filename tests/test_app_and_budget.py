@@ -482,6 +482,17 @@ def test_auth_me_requires_token(temp_db):
     assert res.status_code == 401
 
 
+def test_probe_requests_do_not_initialize_schema(monkeypatch):
+    calls = []
+    monkeypatch.setattr(app_module, "ensure_schema_once", lambda: calls.append("schema"))
+    client = app.test_client()
+
+    assert client.get("/api/health").status_code == 200
+    assert client.open("/api/summary", method="OPTIONS").status_code == 200
+    assert client.get("/api/auth/me").status_code == 401
+    assert calls == []
+
+
 def test_refresh_token_flow(temp_db):
     client = app.test_client()
     reg = client.post("/api/auth/register", json={

@@ -272,10 +272,8 @@ _schema_ensured = False
 def ensure_schema_once():
     global _schema_ensured
     if not _schema_ensured:
-        try:
-            create_table()
-        finally:
-            _schema_ensured = True
+        create_table()
+        _schema_ensured = True
 
 def _user_where(user_id: Optional[str], prefix: str = "WHERE") -> str:
     if not user_id:
