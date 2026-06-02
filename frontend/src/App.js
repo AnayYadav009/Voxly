@@ -557,7 +557,7 @@ const GLOBAL_CSS = `
   }
   .chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-  /* ── Bar chart (daily) ── */
+  /* ── Bar chart (daily & monthly logic combined for tooltips) ── */
   .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 140px; }
   .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
   .bar-fill {
@@ -567,7 +567,7 @@ const GLOBAL_CSS = `
     position: relative;
     cursor: default;
   }
-  .bar-fill:hover::after {
+  .bar-fill:hover::after, .bar-fill:focus::after {
     content: attr(data-amount);
     position: absolute; bottom: calc(100% + 5px); left: 50%;
     transform: translateX(-50%);
@@ -576,7 +576,23 @@ const GLOBAL_CSS = `
     padding: 3px 7px; border-radius: 5px;
     white-space: nowrap;
     pointer-events: none;
+    z-index: 10;
   }
+
+  /* Prevent edge clipping for tooltips */
+  .bar-col:first-child .bar-fill:hover::after,
+  .bar-col:first-child .bar-fill:focus::after,
+  .month-col:first-child .bar-fill:hover::after,
+  .month-col:first-child .bar-fill:focus::after {
+    left: 0; transform: none;
+  }
+  .bar-col:last-child .bar-fill:hover::after,
+  .bar-col:last-child .bar-fill:focus::after,
+  .month-col:last-child .bar-fill:hover::after,
+  .month-col:last-child .bar-fill:focus::after {
+    left: auto; right: 0; transform: none;
+  }
+
   .bar-label { font-size: 11px; color: var(--text-3); }
 
   /* ── Recent table ── */
@@ -890,7 +906,14 @@ const DonutChart = ({ data, dark }) => {
             angle += sweep;
             const end = polarToXY(angle, R);
             const color = getCatColor(d.category.toLowerCase(), dark);
+            
             if (sweep < 1) return null;
+            
+            // Fix: Handle 100% case
+            if (sweep >= 359.9) {
+              return <circle key={i} cx={cx} cy={cy} r={R} fill={color} style={{ cursor: 'default' }} />;
+            }
+            
             return (
               <path
                 key={i}
@@ -1030,8 +1053,12 @@ const DashboardTab = ({
                   <div key={i} className="bar-col">
                     <div
                       className="bar-fill"
-                      style={{ height: `${Math.max(pct, 4)}%`, background: over ? '#ef4444' : 'var(--accent)' }}
+                      style={{ 
+                        height: `${d.amount > 0 ? Math.max(pct, 4) : 0}%`, 
+                        background: over ? '#ef4444' : 'var(--accent)' 
+                      }}
                       data-amount={formatINR(d.amount)}
+                      tabIndex="0"
                     />
                     <span className="bar-label">{d.day}</span>
                   </div>
@@ -1112,13 +1139,15 @@ const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, month
             return (
               <div key={i} className="month-col">
                 <div
-                  className="month-bar"
+                  className="month-bar bar-fill"
                   style={{
-                    height: `${Math.max(pct, 4)}%`,
+                    height: `${m.amount > 0 ? Math.max(pct, 4) : 0}%`,
                     background: isCurrent ? 'var(--accent)' : 'var(--border)',
                     opacity: isCurrent ? 1 : 0.6,
+                    position: 'relative'
                   }}
-                  title={formatINR(m.amount)}
+                  data-amount={formatINR(m.amount)}
+                  tabIndex="0"
                 />
                 <span className="month-label">{m.label}</span>
               </div>
