@@ -16,27 +16,23 @@ jest.mock('lucide-react', () => {
   return {
     Mic: mockIcon('Mic'),
     MicOff: mockIcon('MicOff'),
+    LayoutDashboard: mockIcon('LayoutDashboard'),
     TrendingUp: mockIcon('TrendingUp'),
     Calendar: mockIcon('Calendar'),
     Wallet: mockIcon('Wallet'),
-    PieChart: mockIcon('PieChart'),
     BarChart3: mockIcon('BarChart3'),
+    Receipt: mockIcon('Receipt'),
+    PiggyBank: mockIcon('PiggyBank'),
     Plus: mockIcon('Plus'),
     Sun: mockIcon('Sun'),
     Moon: mockIcon('Moon'),
+    RefreshCw: mockIcon('RefreshCw'),
     LogOut: mockIcon('LogOut'),
     Settings: mockIcon('Settings'),
-    Bell: mockIcon('Bell'),
-    ChevronRight: mockIcon('ChevronRight'),
     ChevronDown: mockIcon('ChevronDown'),
-    Activity: mockIcon('Activity'),
-    Home: mockIcon('Home'),
+    ChevronUp: mockIcon('ChevronUp'),
+    Tag: mockIcon('Tag'),
     X: mockIcon('X'),
-    AlertTriangle: mockIcon('AlertTriangle'),
-    CheckCircle: mockIcon('CheckCircle'),
-    Info: mockIcon('Info'),
-    Menu: mockIcon('Menu'),
-    Zap: mockIcon('Zap'),
     ArrowUpRight: mockIcon('ArrowUpRight'),
     ArrowDownRight: mockIcon('ArrowDownRight'),
   };
@@ -105,21 +101,13 @@ describe('Voxly Dashboard', () => {
 
   test('add expense button does not submit with no amount', async () => {
     render(<App />);
-    await waitFor(() => {
-      expect(screen.getAllByText(/Voxly/i).length).toBeGreaterThan(0);
-    });
-    
-    // Switch to Transactions tab
-    const transactionsTabBtn = screen.getByRole('button', { name: /Transactions/i });
-    await userEvent.click(transactionsTabBtn);
 
-    // Click "Add expense manually" button to reveal the form
-    const revealFormBtn = screen.getByRole('button', { name: /Add expense manually/i });
-    await userEvent.click(revealFormBtn);
+    const expensesTabBtn = await screen.findAllByRole('button', { name: /Expenses/i });
+    await userEvent.click(expensesTabBtn[0]);
 
     let btn;
     await waitFor(() => {
-      btn = screen.getByRole('button', { name: /Add Expense/i });
+      btn = screen.getByRole('button', { name: /^Add$/i });
       expect(btn).toBeInTheDocument();
     });
     

@@ -22,13 +22,11 @@ import {
   ChevronUp,
   Plus,
   TrendingUp,
-  TrendingDown,
   Wallet,
   Calendar,
   Tag,
   ArrowUpRight,
   ArrowDownRight,
-  Zap,
 } from 'lucide-react';
 
 import {
@@ -200,9 +198,16 @@ const computeDailySpending = (expenses = []) => {
 
 const useDarkMode = () => {
   const [dark, setDark] = useState(() => {
-    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('voxly_theme') : null;
+    let stored = null;
+    try {
+      stored = typeof localStorage !== 'undefined' ? localStorage.getItem('voxly_theme') : null;
+    } catch {}
     if (stored) return stored === 'dark';
-    return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+    );
   });
   const toggle = useCallback(() => setDark(d => {
     const next = !d;
