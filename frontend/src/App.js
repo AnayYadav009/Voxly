@@ -560,8 +560,9 @@ const GLOBAL_CSS = `
   .chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   /* ── Bar chart (daily & monthly logic combined for tooltips) ── */
-  .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 140px; }
-  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .bar-chart { display: flex; align-items: stretch; gap: 4px; height: 140px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; }
+  .bar-fill-wrapper { flex: 1; display: flex; align-items: flex-end; width: 100%; }
   .bar-fill {
     width: 100%; border-radius: 5px 5px 0 0;
     min-height: 4px;
@@ -634,8 +635,8 @@ const GLOBAL_CSS = `
   .legend-amount { font-weight: 600; font-family: var(--font-display); font-size: 13px; color: var(--text); }
 
   /* ── Monthly bar chart ── */
-  .month-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
-  .month-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .month-chart { display: flex; align-items: stretch; gap: 6px; height: 120px; }
+  .month-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; }
   .month-bar { width: 100%; border-radius: 5px 5px 0 0; transition: height 0.6s cubic-bezier(0.34,1.56,0.64,1); }
   .month-label { font-size: 10px; color: var(--text-3); white-space: nowrap; }
   .month-delta {
@@ -1060,15 +1061,17 @@ const DashboardTab = ({
                 const over = d.amount > 1500;
                 return (
                   <div key={d.key || d.day + i} className="bar-col">
-                    <div
-                      className="bar-fill"
-                      style={{ 
-                        height: `${d.amount > 0 ? Math.max(pct, 4) : 0}%`, 
-                        background: over ? '#ef4444' : 'var(--accent)' 
-                      }}
-                      data-amount={formatINR(d.amount)}
-                      tabIndex="0"
-                    />
+                    <div className="bar-fill-wrapper">
+                      <div
+                        className="bar-fill"
+                        style={{ 
+                          height: `${d.amount > 0 ? Math.max(pct, 4) : 0}%`, 
+                          background: over ? '#ef4444' : 'var(--accent)' 
+                        }}
+                        data-amount={formatINR(d.amount)}
+                        tabIndex="0"
+                      />
+                    </div>
                     <span className="bar-label">{d.day}</span>
                   </div>
                 );
@@ -1147,17 +1150,19 @@ const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, month
             const pct = (m.amount / maxMonthly) * 100;
             return (
               <div key={m.label || i} className="month-col">
-                <div
-                  className="month-bar bar-fill"
-                  style={{
-                    height: `${m.amount > 0 ? Math.max(pct, 4) : 0}%`,
-                    background: isCurrent ? 'var(--accent)' : 'var(--border)',
-                    opacity: isCurrent ? 1 : 0.6,
-                    position: 'relative'
-                  }}
-                  data-amount={formatINR(m.amount)}
-                  tabIndex="0"
-                />
+                <div className="bar-fill-wrapper">
+                  <div
+                    className="month-bar bar-fill"
+                    style={{
+                      height: `${m.amount > 0 ? Math.max(pct, 4) : 0}%`,
+                      background: isCurrent ? 'var(--accent)' : 'var(--border)',
+                      opacity: isCurrent ? 1 : 0.6,
+                      position: 'relative'
+                    }}
+                    data-amount={formatINR(m.amount)}
+                    tabIndex="0"
+                  />
+                </div>
                 <span className="month-label">{m.label}</span>
               </div>
             );
