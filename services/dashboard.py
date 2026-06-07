@@ -19,8 +19,10 @@ from database import (
     get_recent_expenses,
 )
 from summary_module import (
+    get_monthly_summary_data,
     get_monthly_summary_text,
     get_monthly_total,
+    get_weekly_summary_data,
     get_weekly_summary_text,
 )
 from visual_module import (
@@ -148,7 +150,9 @@ def _build_dashboard_context(user_id: Optional[str] = None, fields: Optional[Set
         "category_totals",
         "recent_expenses",
         "weekly_summary",
+        "weekly_summary_data",
         "monthly_summary",
+        "monthly_summary_data",
         "budget_status",
         "budget_alerts",
         "charts",
@@ -181,8 +185,12 @@ def _build_dashboard_context(user_id: Optional[str] = None, fields: Optional[Set
         context["recent_expenses"] = recent_expenses
     if "weekly_summary" in requested:
         context["weekly_summary"] = get_weekly_summary_text(user_id=user_id)
+    if "weekly_summary_data" in requested:
+        context["weekly_summary_data"] = get_weekly_summary_data(user_id=user_id)
     if "monthly_summary" in requested:
         context["monthly_summary"] = get_monthly_summary_text(user_id=user_id)
+    if "monthly_summary_data" in requested:
+        context["monthly_summary_data"] = get_monthly_summary_data(user_id=user_id)
     if "budget_status" in requested:
         context["budget_status"] = [
             {

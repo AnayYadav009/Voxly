@@ -175,6 +175,23 @@ def api_update_expense(expense_id: int):
     return jsonify({"message": "Expense updated.", "reload": True})
 
 
+@expenses_bp.route("/expenses/<int:expense_id>", methods=["DELETE"])
+def api_delete_expense(expense_id: int):
+    """Delete an expense by id (scoped to the authenticated user)."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    from database import delete_expense
+    try:
+        deleted = delete_expense(expense_id, user_id=user["id"])
+    except Exception as exc:
+        log_error("Delete expense failed: %s", exc)
+        return _error("Failed to delete expense.", 500)
+    if not deleted:
+        return _error("Expense not found.", 404)
+    return jsonify({"message": "Expense deleted.", "reload": True})
+
+
 @expenses_bp.route("/export")
 def api_export():
     """Handle API export."""

@@ -8,25 +8,19 @@ import React, {
 import {
   Mic,
   MicOff,
-  LayoutDashboard,
-  BarChart3,
-  Receipt,
-  PiggyBank,
-  Settings,
-  LogOut,
   Sun,
   Moon,
   RefreshCw,
   X,
   ChevronDown,
   ChevronUp,
-  Plus,
   TrendingUp,
   Wallet,
   Calendar,
   Tag,
   ArrowUpRight,
   ArrowDownRight,
+  LogOut,
 } from 'lucide-react';
 
 import {
@@ -41,158 +35,18 @@ import {
 import ConfirmDialog from './components/ConfirmDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+import { RECENT_LIMIT, CATEGORY_COLORS, BUDGET_DEFAULTS, NAV_TABS, QUICK_COMMANDS } from './constants';
+import { formatINR, titleCase, getCatColor, parseWeeklySummary, parseMonthlySummary, normalizeCategoryTotals, mapRecentExpenses, normalizeCategoryChart, normalizeDailyChart, normalizeMonthlyChart, computeDailySpending } from './utils';
+import { DonutChart } from './components/DonutChart';
+import { DailyBarChart } from './components/DailyBarChart';
+import { MonthlyBarChart } from './components/MonthlyBarChart';
+import { RecentExpensesTable } from './components/RecentExpensesTable';
+import { AddExpenseForm } from './components/AddExpenseForm';
+import { BudgetTab } from './components/BudgetTab';
+import { SettingsTab } from './components/SettingsTab';
+import { useVoice } from './hooks/useVoice';
 
-const RECENT_LIMIT = 12;
-
-const CATEGORY_COLORS = {
-  food:          { light: '#f97316', dark: '#fb923c' },
-  transport:     { light: '#3b82f6', dark: '#60a5fa' },
-  entertainment: { light: '#a855f7', dark: '#c084fc' },
-  shopping:      { light: '#ec4899', dark: '#f472b6' },
-  utilities:     { light: '#14b8a6', dark: '#2dd4bf' },
-  health:        { light: '#22c55e', dark: '#4ade80' },
-  education:     { light: '#eab308', dark: '#facc15' },
-  rent:          { light: '#ef4444', dark: '#f87171' },
-  savings:       { light: '#8b5cf6', dark: '#a78bfa' },
-  personal:      { light: '#06b6d4', dark: '#22d3ee' },
-  gifts:         { light: '#f43f5e', dark: '#fb7185' },
-  other:         { light: '#64748b', dark: '#94a3b8' },
-  uncategorized: { light: '#94a3b8', dark: '#cbd5e1' },
-};
-
-const BUDGET_DEFAULTS = {
-  food: 10000, transport: 4000, entertainment: 3000,
-  shopping: 5000, utilities: 5000, health: 3000,
-  personal: 2000, gifts: 2000, savings: 6000,
-  uncategorized: 2000, other: 2500,
-};
-
-const NAV_TABS = [
-  { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { id: 'analytics', label: 'Analytics',  Icon: BarChart3 },
-  { id: 'expenses',  label: 'Expenses',   Icon: Receipt },
-  { id: 'budget',    label: 'Budget',     Icon: PiggyBank },
-  { id: 'settings',  label: 'Settings',   Icon: Settings },
-];
-
-const QUICK_COMMANDS = [
-  'Add 500 food',
-  'Weekly summary',
-  'My budget',
-  'Delete last',
-];
-
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-const formatINR = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return '₹0';
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency', currency: 'INR',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(Number(value));
-};
-
-const titleCase = (v) =>
-  v ? v.toString().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
-
-const getCatColor = (cat, dark) => {
-  const key = (cat || '').toLowerCase();
-  const entry = CATEGORY_COLORS[key] || CATEGORY_COLORS.other;
-  return dark ? entry.dark : entry.light;
-};
-
-const parseCurrencyValue = (line) => {
-  if (!line) return null;
-  const m = line.match(/₹\s*([\d,]+(?:\.\d+)?)/);
-  return m ? Number(m[1].replace(/,/g, '')) : null;
-};
-
-const parseCategoryLine = (line) => {
-  if (!line) return [];
-  const [, listPart = ''] = line.split(':');
-  return listPart.split(',').map((item) => {
-    const t = item.trim();
-    if (!t) return null;
-    const m = t.match(/^(.*?)\s*\((?:₹)?([\d,]+(?:\.\d+)?)\)/i);
-    if (!m) return { name: titleCase(t), amount: null };
-    return { name: titleCase(m[1].trim()), amount: Number(m[2].replace(/,/g, '')) };
-  }).filter(Boolean);
-};
-
-const parseWeeklySummary = (text) => {
-  const lines = typeof text === 'string' ? text.split(/\n+/).map(l => l.trim()).filter(Boolean) : [];
-  return {
-    total: parseCurrencyValue(lines.find(l => l.toLowerCase().includes('weekly spend'))),
-    dailyAverage: parseCurrencyValue(lines.find(l => l.toLowerCase().includes('daily average'))),
-    topCategories: parseCategoryLine(lines.find(l => l.toLowerCase().includes('top categories'))),
-    lines,
-  };
-};
-
-const parseMonthlySummary = (text) => {
-  const lines = typeof text === 'string' ? text.split(/\n+/).map(l => l.trim()).filter(Boolean) : [];
-  return {
-    total: parseCurrencyValue(lines.find(l => l.toLowerCase().includes('total'))),
-    topCategories: parseCategoryLine(lines.find(l => l.toLowerCase().includes('leading categories'))),
-    lines,
-  };
-};
-
-const normalizeCategoryTotals = (raw = []) => {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((entry, i) => {
-    if (Array.isArray(entry)) {
-      return { key: String(entry[0] ?? i), category: String(entry[0] ?? '').toLowerCase(), amount: Number(entry[1]) || 0 };
-    }
-    if (entry && typeof entry === 'object') {
-      const category = String(entry.category ?? entry[0] ?? '').toLowerCase();
-      return { key: entry.id ?? `cat-${i}`, category, amount: Number(entry.total ?? entry.amount ?? 0) || 0 };
-    }
-    return null;
-  }).filter(Boolean);
-};
-
-const mapRecentExpenses = (raw = []) =>
-  raw.map((item, i) => ({
-    id: item.id ?? `e-${i}`,
-    date: item.date ?? '',
-    time: item.time ?? '',
-    amount: Number(item.amount ?? 0) || 0,
-    category: item.category ? item.category.toString() : 'uncategorized',
-    description: item.description ?? '',
-  }));
-
-const normalizeCategoryChart = (raw = []) =>
-  (Array.isArray(raw) ? raw : []).map((e, i) => ({
-    key: String(e?.category ?? e?.name ?? `c-${i}`),
-    category: titleCase(String(e?.category ?? e?.name ?? `c-${i}`)),
-    amount: Number(e?.total ?? e?.amount ?? 0) || 0,
-  })).filter(Boolean);
-
-const normalizeDailyChart = (raw = []) =>
-  (Array.isArray(raw) ? raw : []).map((e, i) => ({
-    day: e?.label ?? e?.day ?? `Day ${i + 1}`,
-    amount: Number(e?.total ?? e?.amount ?? 0) || 0,
-  })).filter(Boolean);
-
-const normalizeMonthlyChart = (raw = []) =>
-  (Array.isArray(raw) ? raw : []).map((e, i) => ({
-    label: e?.label ?? e?.month ?? `M${i + 1}`,
-    amount: Number(e?.total ?? e?.amount ?? 0) || 0,
-  })).filter(Boolean);
-
-const computeDailySpending = (expenses = []) => {
-  const today = new Date();
-  const buckets = Array.from({ length: 7 }, (_, offset) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() - (6 - offset));
-    return { key: d.toISOString().slice(0, 10), day: d.toLocaleDateString('en-IN', { weekday: 'short' }), amount: 0 };
-  });
-  const byKey = Object.fromEntries(buckets.map(b => [b.key, b]));
-  expenses.forEach(e => { if (byKey[e.date]) byKey[e.date].amount += Number(e.amount) || 0; });
-  return buckets.map(({ day, amount, key }) => ({ day, amount, key }));
-};
+// ─── Constants & Utilities ───────────────────────────────────────────────────
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
@@ -865,7 +719,7 @@ if (typeof window !== 'undefined') {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 const Toasts = ({ toasts, remove }) => (
-  <div className="toast-container">
+  <div className="toast-container" role="status" aria-live="polite">
     {toasts.map(t => (
       <div
         key={t.id}
@@ -883,84 +737,16 @@ const Toasts = ({ toasts, remove }) => (
   </div>
 );
 
-const DonutChart = ({ data, dark }) => {
-  const total = data.reduce((s, d) => s + d.amount, 0) || 1;
-  let angle = -90;
-  const R = 80, cx = 90, cy = 90, stroke = 28;
-  const polarToXY = (deg, r) => ({
-    x: cx + r * Math.cos((deg * Math.PI) / 180),
-    y: cy + r * Math.sin((deg * Math.PI) / 180),
-  });
-
-  if (data.length === 0) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-        <div className="donut-wrap"><svg width={180} height={180} viewBox="0 0 180 180"><circle cx={cx} cy={cy} r={R} fill="none" stroke="var(--border)" strokeWidth={stroke} /></svg></div>
-        <p style={{ fontSize: 13, color: 'var(--text-2)' }}>No expenses yet.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-      <div className="donut-wrap">
-        <svg width={180} height={180} viewBox="0 0 180 180">
-          {data.map((d, i) => {
-            const pct = d.amount / total;
-            const sweep = pct * 360;
-            const large = sweep > 180 ? 1 : 0;
-            const start = polarToXY(angle, R);
-            angle += sweep;
-            const end = polarToXY(angle, R);
-            const color = getCatColor(d.category.toLowerCase(), dark);
-            
-            if (sweep < 1) return null;
-            
-            // Fix: Handle 100% case
-            if (sweep >= 359.9) {
-              return <circle key={d.key || i} cx={cx} cy={cy} r={R} fill={color} style={{ cursor: 'default' }} />;
-            }
-            
-            return (
-              <path
-                key={d.key || i}
-                d={`M ${cx} ${cy} L ${start.x} ${start.y} A ${R} ${R} 0 ${large} 1 ${end.x} ${end.y} Z`}
-                fill={color}
-                style={{ cursor: 'default' }}
-              />
-            );
-          })}
-          <circle cx={cx} cy={cy} r={R - stroke} fill="var(--bg-card)" />
-        </svg>
-        <div className="donut-center">
-          <span className="donut-total">{formatINR(total)}</span>
-          <span className="donut-sub">total</span>
-        </div>
-      </div>
-      <div className="donut-legend">
-        {data.slice(0, 6).map((d, i) => (
-          <div key={d.key || i} className="legend-item">
-            <div className="legend-left">
-              <div className="legend-dot" style={{ background: getCatColor(d.category.toLowerCase(), dark) }} />
-              <span className="legend-name">{d.category}</span>
-            </div>
-            <span className="legend-amount">{formatINR(d.amount)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
 
 const Collapsible = ({ title, badge, children, defaultOpen = false }) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div>
-      <button className={`collapsible-header${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)}>
+      <button className={`collapsible-header${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)} aria-expanded={open}>
         <span className="coll-title">{title}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {badge && <span className="coll-badge">{badge}</span>}
-          {open ? <ChevronUp size={16} color="var(--text-3)" /> : <ChevronDown size={16} color="var(--text-3)" />}
+          {open ? <ChevronUp size={16} color="var(--text-3)" aria-hidden="true" /> : <ChevronDown size={16} color="var(--text-3)" aria-hidden="true" />}
         </div>
       </button>
       {open && <div className="collapsible-body">{children}</div>}
@@ -977,18 +763,15 @@ const DashboardTab = ({
   voiceStatus, voiceProcessing, isRecording, voiceConfirm,
   toggleRecording, handleQuickCommand,
   dark,
+  onDelete,
+  threshold,
 }) => {
-  const maxDaily = dailySpending.reduce((m, d) => Math.max(m, d.amount), 0) || 1;
-
   const statCards = [
     { label: "Today's Spend", value: formatINR(todayTotal), sub: 'Updated live', color: '#3b82f6', bg: 'rgba(59,130,246,0.10)', Icon: Wallet },
     { label: 'This Month',    value: formatINR(monthlyTotal), sub: 'Month to date', color: '#a855f7', bg: 'rgba(168,85,247,0.10)', Icon: Calendar },
     { label: 'Weekly Total',  value: weeklyTotal !== null ? formatINR(weeklyTotal) : '—', sub: dailyAverage !== null ? `Avg ${formatINR(dailyAverage)}/day` : 'Last 7 days', color: '#22c55e', bg: 'rgba(34,197,94,0.10)', Icon: TrendingUp },
     { label: 'Categories',    value: categoryCount, sub: 'Active this month', color: '#f97316', bg: 'rgba(249,115,22,0.10)', Icon: Tag },
   ];
-
-  // Minor Fix: Cache the sliced array to prevent double slicing inside rendering logic
-  const topExpenses = recentExpenses.slice(0, 8);
 
   return (
     <div>
@@ -1053,71 +836,10 @@ const DashboardTab = ({
 
         {/* Daily chart */}
         <div className="dashboard-right">
-          <div className="card">
-            <div className="card-title">Last 7 Days</div>
-            <div className="bar-chart">
-              {dailySpending.map((d, i) => {
-                const pct = (d.amount / maxDaily) * 100;
-                const over = d.amount > 1500;
-                return (
-                  <div key={d.key || d.day + i} className="bar-col">
-                    <div className="bar-fill-wrapper">
-                      <div
-                        className="bar-fill"
-                        style={{ 
-                          height: `${d.amount > 0 ? Math.max(pct, 4) : 0}%`, 
-                          background: over ? '#ef4444' : 'var(--accent)' 
-                        }}
-                        data-amount={formatINR(d.amount)}
-                        tabIndex="0"
-                      />
-                    </div>
-                    <span className="bar-label">{d.day}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <DailyBarChart dailySpending={dailySpending} dark={dark} threshold={threshold} />
 
           {/* Recent table */}
-          <div className="card" style={{ padding: 0 }}>
-            <div style={{ padding: '16px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div className="card-title" style={{ marginBottom: 0 }}>Recent Expenses</div>
-              {loading && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Updating…</span>}
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="expense-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Amount</th>
-                    <th>Category</th>
-                    <th className="hide-mobile">Note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topExpenses.length > 0 ? topExpenses.map(e => {
-                    const color = getCatColor(e.category, dark);
-                    return (
-                      <tr key={e.id}>
-                        <td className="date-cell">{e.date || '—'}</td>
-                        <td className="amount-cell">{formatINR(e.amount)}</td>
-                        <td>
-                          <span className="cat-badge" style={{ background: `${color}22`, color }}>
-                            <span className="cat-dot" style={{ background: color }} />
-                            {titleCase(e.category)}
-                          </span>
-                        </td>
-                        <td className="desc-cell hide-mobile">{e.description || '—'}</td>
-                      </tr>
-                    );
-                  }) : (
-                    <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-3)', padding: '20px 0' }}>No expenses yet</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <RecentExpensesTable expenses={recentExpenses.slice(0, 8)} dark={dark} loading={loading} title="Recent Expenses" onDelete={onDelete} />
         </div>
       </div>
     </div>
@@ -1125,14 +847,6 @@ const DashboardTab = ({
 };
 
 const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, monthlySummaryData, dark }) => {
-  const maxMonthly = monthlyTrend.reduce((m, d) => Math.max(m, d.amount), 0) || 1;
-  const monthDelta = monthlyTrend.length >= 2
-    ? monthlyTrend[monthlyTrend.length - 1].amount - monthlyTrend[monthlyTrend.length - 2].amount
-    : null;
-  const monthDeltaPct = monthlyTrend.length >= 2 && monthlyTrend[monthlyTrend.length - 2].amount > 0
-    ? Math.abs(monthDelta) / monthlyTrend[monthlyTrend.length - 2].amount * 100
-    : null;
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Donut */}
@@ -1142,42 +856,7 @@ const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, month
       </div>
 
       {/* Monthly trend */}
-      <div className="card">
-        <div className="card-title">Monthly Trend (6 months)</div>
-        <div className="month-chart">
-          {monthlyTrend.map((m, i) => {
-            const isCurrent = i === monthlyTrend.length - 1;
-            const pct = (m.amount / maxMonthly) * 100;
-            return (
-              <div key={m.label || i} className="month-col">
-                <div className="bar-fill-wrapper">
-                  <div
-                    className="month-bar bar-fill"
-                    style={{
-                      height: `${m.amount > 0 ? Math.max(pct, 4) : 0}%`,
-                      background: isCurrent ? 'var(--accent)' : 'var(--border)',
-                      opacity: isCurrent ? 1 : 0.6,
-                      position: 'relative'
-                    }}
-                    data-amount={formatINR(m.amount)}
-                    tabIndex="0"
-                  />
-                </div>
-                <span className="month-label">{m.label}</span>
-              </div>
-            );
-          })}
-        </div>
-        {monthDelta !== null && (
-          <div className="month-delta" style={{ color: monthDelta <= 0 ? 'var(--success)' : 'var(--danger)' }}>
-            {monthDelta <= 0 ? <ArrowDownRight size={16} /> : <ArrowUpRight size={16} />}
-            <span>
-              {monthDelta <= 0 ? 'Down' : 'Up'} {formatINR(Math.abs(monthDelta))}
-              {monthDeltaPct !== null && ` (${monthDeltaPct.toFixed(0)}%)`} vs last month
-            </span>
-          </div>
-        )}
-      </div>
+      <MonthlyBarChart monthlyTrend={monthlyTrend} dark={dark} />
 
       {/* Collapsibles */}
       <Collapsible title="Weekly Summary" badge={weeklySummaryData.total ? formatINR(weeklySummaryData.total) : null} defaultOpen>
@@ -1198,59 +877,10 @@ const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, month
 };
 
 const ExpensesTab = ({ recentExpenses, onAddExpense, submitting, dark }) => {
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('food');
-  const [note, setNote] = useState('');
-
-  const handleAdd = async () => {
-    const v = Number(amount);
-    if (!v || v <= 0) return;
-    await onAddExpense({ amount: v, category, description: note });
-    setAmount('');
-    setNote('');
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Add form */}
-      <div className="card">
-        <div className="card-title">Add Expense</div>
-        <div className="form-grid">
-          <div className="form-group">
-            <label className="form-label">Amount (₹)</label>
-            <input
-              type="number"
-              className="form-input"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              placeholder="0"
-              min="0"
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Category</label>
-            <select className="form-select" value={category} onChange={e => setCategory(e.target.value)}>
-              {['food','transport','entertainment','shopping','utilities','health','personal','other'].map(c => (
-                <option key={c} value={c}>{titleCase(c)}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Note (optional)</label>
-            <input
-              type="text"
-              className="form-input"
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              placeholder="Add a note…"
-            />
-          </div>
-          <button className="btn-primary" onClick={handleAdd} disabled={submitting}>
-            <Plus size={15} />
-            {submitting ? 'Adding…' : 'Add'}
-          </button>
-        </div>
-      </div>
+      <AddExpenseForm onAddExpense={onAddExpense} submitting={submitting} />
 
       {/* Full table */}
       <div className="card" style={{ padding: 0 }}>
@@ -1294,103 +924,7 @@ const ExpensesTab = ({ recentExpenses, onAddExpense, submitting, dark }) => {
   );
 };
 
-const BudgetTab = ({ categoryTotals, dark }) => {
-  const rows = useMemo(() => categoryTotals.map(item => {
-    const budget = BUDGET_DEFAULTS[item.category] ?? 4000;
-    const pct = budget ? Math.min((item.amount / budget) * 100, 120) : 0;
-    const color = pct >= 100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#22c55e';
-    return { category: titleCase(item.category), spent: item.amount, budget, pct, color };
-  }), [categoryTotals]);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div className="card">
-        <div className="card-title">Monthly Budget Overview</div>
-        {rows.length > 0 ? rows.map((r, i) => (
-          <div key={r.category} className="progress-row">
-            <div className="progress-meta">
-              <span className="progress-name">{r.category}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span className="progress-amounts">{formatINR(r.spent)} / {formatINR(r.budget)}</span>
-                <span className="progress-pct" style={{ color: r.color }}>{Math.round(r.pct)}%</span>
-              </div>
-            </div>
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: `${Math.min(r.pct, 100)}%`, background: r.color }} />
-            </div>
-          </div>
-        )) : (
-          <p style={{ fontSize: 13, color: 'var(--text-3)' }}>Add expenses to track budget utilization.</p>
-        )}
-      </div>
-
-      <div className="card">
-        <div className="card-title">Voice Budget Commands</div>
-        <div className="mono-list">
-          set budget for food to 10000<br />
-          set budget for transport to 4000<br />
-          what's my food budget<br />
-          show my budgets<br />
-          remove budget for entertainment<br />
-          set budget for utilities to 5000 warn me at 70 percent
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const SettingsTab = ({ user, dark, toggleDark, loggingEnabled, onToggleLogging, preferenceSaving, onLogout }) => {
-  const displayName = user?.display_name || user?.email || 'User';
-  const initial = (displayName[0] || 'U').toUpperCase();
-
-  return (
-    <div style={{ maxWidth: 560 }}>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="settings-section">
-          <div className="settings-title">Profile</div>
-          <div className="profile-avatar">{initial}</div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>{displayName}</div>
-          {user?.email && <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 4 }}>{user.email}</div>}
-        </div>
-
-        <div className="settings-section">
-          <div className="settings-title">Appearance</div>
-          <div className="settings-row">
-            <div>
-              <div className="settings-row-label">Dark Mode</div>
-              <div className="settings-row-sub">Switch between light and dark theme</div>
-            </div>
-            <label className="toggle-wrap">
-              <input type="checkbox" className="toggle-input" checked={dark} onChange={toggleDark} />
-              <span className="toggle-slider" />
-            </label>
-          </div>
-        </div>
-
-        <div className="settings-section">
-          <div className="settings-title">Privacy</div>
-          <div className="settings-row">
-            <div>
-              <div className="settings-row-label">Voice Command Logging</div>
-              <div className="settings-row-sub">Store transcripts to help debug misheard commands. Off by default.</div>
-            </div>
-            <label className="toggle-wrap">
-              <input type="checkbox" className="toggle-input" checked={loggingEnabled} onChange={e => onToggleLogging(e.target.checked)} disabled={preferenceSaving} />
-              <span className="toggle-slider" />
-            </label>
-          </div>
-          {preferenceSaving && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>Saving…</div>}
-        </div>
-
-        <button className="btn-danger" onClick={onLogout}>
-          <LogOut size={15} />
-          Sign out
-        </button>
-      </div>
-    </div>
-  );
-};
-
+// Extracted BudgetTab and SettingsTab to separate component files
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLogging }) => {
@@ -1408,15 +942,8 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
   const [submitting, setSubmitting] = useState(false);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
 
-  const [isRecording, setIsRecording] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState('');
-  const [voiceProcessing, setVoiceProcessing] = useState(false);
-  const [voiceConfirm, setVoiceConfirm] = useState(null);
-
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
   const [budgetAlertOverride, setBudgetAlertOverride] = useState(null);
-
-  const recognitionRef = useRef(null);
   
   // Fix 3: Memory leak / state updates on unmounted component safety check
   const isMounted = useRef(true);
@@ -1463,123 +990,11 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     loadData(true);
   }, [loadData]);
 
-  const handleVoiceResponse = useCallback(async (data) => {
-    if (!data) { addToast('No response.', 'error'); return; }
-    const msg = data.reply || data.message || 'Done.';
-    const isErr = data.error || data.success === false;
-    setVoiceStatus(msg);
-    addToast(msg, isErr ? 'error' : 'success');
-
-    if (data.budget_alert) setBudgetAlertOverride(data.budget_alert);
-    
-    // Minor Fix: Cancel previous speech to prevent overlapping
-    if (msg && 'speechSynthesis' in window && msg.length <= 160) {
-      window.speechSynthesis.cancel(); 
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
-    }
-
-    const opts = data.options || data.option_list;
-    if ((data.needs_confirmation || data.needsClarification) && Array.isArray(opts) && opts.length > 0) {
-      setVoiceConfirm({ title: data.confirmation_prompt || 'Confirm', message: msg, options: opts });
-      return;
-    }
-
-    if (data.dashboard) {
-      setSummary({ total_today: data.dashboard.total_today, weekly_summary: data.dashboard.weekly_summary, monthly_summary: data.dashboard.monthly_summary, category_totals: data.dashboard.category_totals, budget_alerts: data.dashboard.budget_alerts, monthly_total: data.dashboard.monthly_total });
-      setRecentExpenses(mapRecentExpenses(data.dashboard.recent_expenses || []));
-      if (data.dashboard.chart_series) {
-        const cs = data.dashboard.chart_series;
-        setChartCategories(Array.isArray(cs.category_breakdown) ? cs.category_breakdown : []);
-        setChartDaily(Array.isArray(cs.daily_totals) ? cs.daily_totals : []);
-        setChartMonthly(Array.isArray(cs.monthly_totals) ? cs.monthly_totals : []);
-      } else { await loadData(true); }
-    } else if (!isErr) { await loadData(true); }
-  }, [addToast, loadData]);
-
-  const handleQuickCommand = useCallback(async (cmd) => {
-    if (voiceProcessing || voiceConfirm) return;
-    setVoiceProcessing(true);
-    setVoiceStatus(`Running: "${cmd}"…`);
-    try {
-      const resp = await apiSendVoiceCommand(cmd);
-      if (isMounted.current) await handleVoiceResponse(resp);
-    } catch (err) {
-      if (isMounted.current) addToast(err?.message || 'Command failed.', 'error');
-    } finally { 
-      if (isMounted.current) setVoiceProcessing(false); 
-    }
-  }, [voiceProcessing, voiceConfirm, handleVoiceResponse, addToast]);
-
-  const handleVoiceConfirmSelect = useCallback(async (option) => {
-    setVoiceConfirm(null);
-    const cmd = option?.value || option?.command || option?.text || option?.label || option;
-    if (!cmd || !String(cmd).trim()) { setVoiceStatus('Cancelled.'); return; }
-    setVoiceProcessing(true);
-    try {
-      const resp = await apiSendVoiceCommand(String(cmd));
-      if (isMounted.current) await handleVoiceResponse(resp);
-    } catch (err) { 
-      if (isMounted.current) addToast(err?.message || 'Failed.', 'error'); 
-    } finally { 
-      if (isMounted.current) setVoiceProcessing(false); 
-    }
-  }, [handleVoiceResponse, addToast]);
-
-  useEffect(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setVoiceStatus('Voice recognition not supported in this browser.'); return; }
-    const rec = new SR();
-    rec.lang = 'en-IN'; rec.continuous = false; rec.interimResults = false;
-    rec.onstart = () => { setIsRecording(true); setVoiceStatus('Listening…'); };
-    rec.onerror = (e) => { 
-      setIsRecording(false); 
-      setVoiceProcessing(false); 
-      setVoiceStatus(e.error === 'no-speech' ? 'No speech detected.' : `Error: ${e.error}`); 
-    };
-    rec.onend = () => setIsRecording(false);
-    
-    rec.onresult = async (e) => {
-      const t = e.results[0][0].transcript;
-      if (!isMounted.current) return;
-      
-      setVoiceStatus(`Heard: "${t}"`);
-      setVoiceProcessing(true);
-      try { 
-        const resp = await apiSendVoiceCommand(t); 
-        if (isMounted.current) await handleVoiceResponse(resp); 
-      } catch (err) { 
-        if (isMounted.current) {
-          addToast(err?.message || 'Failed.', 'error'); 
-          setVoiceConfirm(null); 
-        }
-      } finally {
-        if (isMounted.current) setVoiceProcessing(false);
-      }
-    };
-    
-    recognitionRef.current = rec;
-    return () => rec.stop();
-  }, [handleVoiceResponse, addToast]);
-
-  const toggleRecording = useCallback(() => {
-    if (voiceProcessing || voiceConfirm) return;
-    const rec = recognitionRef.current;
-    if (!rec) return;
-    
-    if (isRecording) { 
-      rec.stop(); 
-      return; 
-    }
-    
-    setVoiceStatus('Preparing…');
-    // Fix 2: Proper catch for InvalidStateError when mic is already engaging
-    try { 
-      rec.start(); 
-    } catch (err) { 
-      rec.stop();
-      setVoiceStatus('Mic error. Please try again.'); 
-    }
-  }, [isRecording, voiceProcessing, voiceConfirm]);
+  const { isRecording, voiceStatus, voiceProcessing, voiceConfirm, toggleRecording, handleQuickCommand, handleVoiceConfirmSelect, setVoiceConfirm, setVoiceStatus } = useVoice({
+    addToast, loadData, isMounted,
+    setSummary, setRecentExpenses, setChartCategories, setChartDaily, setChartMonthly,
+    setBudgetAlertOverride,
+  });
 
   const handleAddExpense = useCallback(async ({ amount, category, description }) => {
     setSubmitting(true);
@@ -1591,6 +1006,20 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
       addToast(err?.message || 'Failed.', 'error'); 
     } finally { 
       setSubmitting(false); 
+    }
+  }, [addToast, loadData]);
+
+  const handleDeleteExpense = useCallback(async (expenseId) => {
+    try {
+      const resp = await fetch(`/api/expenses/${expenseId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('voxly_token')}` },
+      });
+      if (!resp.ok) throw new Error('Failed to delete');
+      addToast('Expense deleted.', 'success');
+      await loadData(true);
+    } catch (err) {
+      addToast(err?.message || 'Delete failed.', 'error');
     }
   }, [addToast, loadData]);
 
@@ -1607,9 +1036,16 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
   }, [onToggleLogging, addToast]);
 
   // Derived data
-  const weeklySummaryData = useMemo(() => parseWeeklySummary(summary?.weekly_summary), [summary?.weekly_summary]);
-  const monthlySummaryData = useMemo(() => parseMonthlySummary(summary?.monthly_summary), [summary?.monthly_summary]);
+  const weeklySummaryData = useMemo(() => parseWeeklySummary(summary?.weekly_summary_data || summary?.weekly_summary), [summary?.weekly_summary, summary?.weekly_summary_data]);
+  const monthlySummaryData = useMemo(() => parseMonthlySummary(summary?.monthly_summary_data || summary?.monthly_summary), [summary?.monthly_summary, summary?.monthly_summary_data]);
   const categoryTotals = useMemo(() => normalizeCategoryTotals(summary?.category_totals), [summary?.category_totals]);
+
+  const dailyBudgetThreshold = useMemo(() => {
+    const statuses = summary?.budget_status || [];
+    if (!Array.isArray(statuses) || statuses.length === 0) return 1500;
+    const totalLimit = statuses.reduce((sum, s) => sum + (Number(s.limit) || 0), 0);
+    return totalLimit > 0 ? totalLimit / 30 : 1500;
+  }, [summary?.budget_status]);
 
   const todayTotal = summary ? Number(summary.total_today) || 0 : 0;
   const monthlyTotal = summary?.monthly_total ?? monthlySummaryData.total ?? 0;
@@ -1710,6 +1146,8 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                 toggleRecording={toggleRecording}
                 handleQuickCommand={handleQuickCommand}
                 dark={dark}
+                onDelete={handleDeleteExpense}
+                threshold={dailyBudgetThreshold}
               />
             )}
             {tab === 'analytics' && (

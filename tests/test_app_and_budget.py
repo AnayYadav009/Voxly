@@ -114,12 +114,7 @@ def mock_parse(monkeypatch):
     return factory
 
 
-@pytest.fixture
-def temp_budget_file(monkeypatch, tmp_path):
-    import config
-    budget_path = tmp_path / "budgets.json"
-    monkeypatch.setattr(config, "BUDGETS_FILE", str(budget_path))
-    return budget_path
+
 
 
 def _add_expense(amount: float, category: str, date_str: str, user_id: str = None) -> None:
@@ -535,3 +530,86 @@ def test_category_totals_are_objects(temp_db):
     import json
     serialised = json.dumps(context["category_totals"])
     assert serialised is not None
+
+
+# ─── Structured Summary Tests ────────────────────────────────────────────────
+
+
+def test_weekly_summary_data_returns_dict(temp_db):
+    """get_weekly_summary_data should return a dict with expected keys."""
+    from summary_module import get_weekly_summary_data
+    data = get_weekly_summary_data(user_id=None)
+    assert isinstance(data, dict)
+    assert "total" in data
+    assert "daily_average" in data
+    assert "top_categories" in data
+    assert "lines" in data
+    assert isinstance(data["total"], (int, float))
+    assert isinstance(data["lines"], list)
+
+
+def test_monthly_summary_data_returns_dict(temp_db):
+    """get_monthly_summary_data should return a dict with expected keys."""
+    from summary_module import get_monthly_summary_data
+    data = get_monthly_summary_data(user_id=None)
+    assert isinstance(data, dict)
+    assert "total" in data
+    assert "daily_average" in data
+    assert "top_categories" in data
+    assert "lines" in data
+
+
+def test_dashboard_context_includes_structured_summaries(temp_db):
+    """_build_dashboard_context should include weekly_summary_data and monthly_summary_data."""
+    from services.dashboard import _build_dashboard_context
+    uid = _test_user_id(temp_db)
+    context = _build_dashboard_context(user_id=uid)
+    assert "weekly_summary_data" in context
+    assert "monthly_summary_data" in context
+    assert isinstance(context["weekly_summary_data"], dict)
+    assert isinstance(context["monthly_summary_data"], dict)
+
+
+def test_weekly_summary_data_with_expenses(temp_db):
+    """get_weekly_summary_data should reflect added expenses."""
+    from summary_module import get_weekly_summary_data
+    uid = _test_user_id(temp_db)
+    today = datetime.now().strftime(DATE_FORMAT)
+    add_expense(100, "food", user_id=uid, date=today)
+    add_expense(250, "transport", user_id=uid, date=today)
+    data = get_weekly_summary_data(user_id=uid)
+    assert data["total"] >= 350
+
+
+# ─── DELETE Endpoint Tests ───────────────────────────────────────────────────
+
+
+def test_delete_expense_success(temp_db):
+    """DELETE /api/expenses/<id> should remove the expense and return 200."""
+    uid = _test_user_id(temp_db)
+    headers = _auth_headers(uid)
+    today = datetime.now().strftime(DATE_FORMAT)
+    expense_id = add_expense(42, "food", user_id=uid, date=today)
+    with app.test_client() as client:
+        res = client.delete(f"/api/expenses/{expense_id}", headers=headers)
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload["message"] == "Expense deleted."
+    assert payload["reload"] is True
+
+
+def test_delete_expense_not_found(temp_db):
+    """DELETE /api/expenses/<id> should 404 for a nonexistent expense."""
+    uid = _test_user_id(temp_db)
+    headers = _auth_headers(uid)
+    with app.test_client() as client:
+        res = client.delete("/api/expenses/999999", headers=headers)
+    assert res.status_code == 404
+
+
+def test_delete_expense_unauthenticated(temp_db):
+    """DELETE /api/expenses/<id> should reject unauthenticated requests."""
+    with app.test_client() as client:
+        res = client.delete("/api/expenses/1")
+    assert res.status_code in (401, 403)
+

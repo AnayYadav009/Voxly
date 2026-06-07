@@ -42,7 +42,7 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 _raw_jwt_secret = os.environ.get("VOXLY_JWT_SECRET", "")
 _is_dev = os.environ.get("FLASK_ENV", "production") == "development"
 
-if not _raw_jwt_secret:
+if not _raw_jwt_secret or (not _is_dev and _raw_jwt_secret == "dev-secret-change-me"):
     if _is_dev:
         _raw_jwt_secret = "dev-secret-change-me"
         warnings.warn(
@@ -52,7 +52,7 @@ if not _raw_jwt_secret:
         )
     else:
         raise RuntimeError(
-            "VOXLY_JWT_SECRET environment variable must be set in production. "
+            "VOXLY_JWT_SECRET environment variable must be set to a secure value in production. "
             'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
@@ -77,9 +77,4 @@ def init_directories() -> None:
     """Create required runtime directories. Call once at application startup."""
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(CHART_DIR, exist_ok=True)
-    if JWT_SECRET == "dev-secret-change-me":
-        warnings.warn(
-            "VOXLY_JWT_SECRET is set to the default development value. "
-            "Set the VOXLY_JWT_SECRET environment variable before deploying.",
-            stacklevel=2,
-        )
+    

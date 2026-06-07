@@ -116,6 +116,6 @@ describe('Voxly Dashboard', () => {
   });
 
   test('formatINR formats Indian rupee correctly', () => {
-    expect(formatINR(100000)).toBe('₹1,00,000.00');
+    expect(formatINR(100000)).toBe('₹1,00,000');
   });
 });

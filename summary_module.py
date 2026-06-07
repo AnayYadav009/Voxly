@@ -5,10 +5,12 @@ human-readable summary strings for voice and text interfaces.
 """
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
 from config import DATE_FORMAT
 from database import get_db, get_daily_totals_for_month
 from logger import log_error
+
 
 def _fetch_single(query: str, params: Tuple = ()) -> float:
     try:
@@ -28,12 +30,13 @@ def _fetch_single(query: str, params: Tuple = ()) -> float:
         log_error("Summary fetch error: %s", exc)
         raise
 
+
 def get_total_expenses(user_id: Optional[str] = None) -> float:
     """Calculate the lifetime total of all expenses for a user.
-    
+
     Args:
         user_id: The ID of the user to filter expenses for.
-        
+
     Returns:
         float: Total expense amount.
 
@@ -45,18 +48,19 @@ def get_total_expenses(user_id: Optional[str] = None) -> float:
         params = (user_id,)
     return _fetch_single(query, params)
 
+
 def get_monthly_total(
     year: Optional[int] = None,
     month: Optional[int] = None,
     user_id: Optional[str] = None,
 ) -> float:
     """Calculate the total expenses for a specific month.
-    
+
     Args:
         year: The target year (defaults to current year).
         month: The target month (defaults to current month).
         user_id: The ID of the user to filter expenses for.
-        
+
     Returns:
         float: Total expense amount for the specified month.
 
@@ -74,6 +78,7 @@ def get_monthly_total(
         params.append(user_id)
     return _fetch_single(query, tuple(params))
 
+
 def get_expenses_by_category(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -82,13 +87,13 @@ def get_expenses_by_category(
     user_id: Optional[str] = None,
 ) -> List[Dict[str, float]]:
     """Aggregate expenses by category within a date range.
-    
+
     Args:
         start_date: Optional start date string (YYYY-MM-DD).
         end_date: Optional end date string (YYYY-MM-DD).
         end_inclusive: Whether the end_date should be inclusive or exclusive.
         user_id: The ID of the user to filter expenses for.
-        
+
     Returns:
         List[Dict[str, float]]: A list of dictionaries containing 'category' and 'total'.
 
@@ -122,13 +127,14 @@ def get_expenses_by_category(
         log_error("Category breakdown error: %s", exc)
         raise
 
+
 def get_daily_totals(days: int = 7, user_id: Optional[str] = None) -> List[Dict[str, float]]:
     """Retrieve total spending grouped by day for the last N days.
-    
+
     Args:
         days: Number of recent days to include.
         user_id: The ID of the user to filter expenses for.
-        
+
     Returns:
         List[Dict[str, float]]: A list of dictionaries with 'date' and 'total'.
 
@@ -157,29 +163,24 @@ def get_daily_totals(days: int = 7, user_id: Optional[str] = None) -> List[Dict[
         log_error("Daily totals error: %s", exc)
         raise
 
-def get_weekly_summary_text(user_id: Optional[str] = None) -> str:
-    """Generate a human-readable text summary of the past week's spending.
-    
-    Args:
-        user_id: The ID of the user to generate the summary for.
-        
-    Returns:
-        str: A multi-line summary string.
 
-    """
+def get_weekly_summary_data(user_id: Optional[str] = None) -> Dict[str, Any]:
+    """Calculate structured weekly summary metrics and lines."""
     totals = get_daily_totals(days=7, user_id=user_id)
     total_amount = sum(row["total"] for row in totals)
-    avg = total_amount / 7 if totals else 0
+    avg = total_amount / 7 if totals else 0.0
     today = datetime.now(timezone.utc)
     start = (today - timedelta(days=6)).strftime(DATE_FORMAT)
     end = today.strftime(DATE_FORMAT)
-    top_categories = get_expenses_by_category(start, end, user_id=user_id)[:3]
+    top_cats = get_expenses_by_category(start, end, user_id=user_id)[:3]
+    top_categories = [{"category": c["category"], "total": float(c["total"])} for c in top_cats]
+
     lines = [
         f"Weekly spend: ₹{total_amount:.2f}",
         f"Daily average: ₹{avg:.2f}",
     ]
-    if top_categories:
-        cats = ", ".join(f"{c['category']} (₹{c['total']:.0f})" for c in top_categories)
+    if top_cats:
+        cats = ", ".join(f"{c['category']} (₹{c['total']:.0f})" for c in top_cats)
         lines.append(f"Top categories: {cats}")
     if totals:
         peak_entry = max(totals, key=lambda row: row["total"])
@@ -198,18 +199,30 @@ def get_weekly_summary_text(user_id: Optional[str] = None) -> str:
                 lines.append(
                     f"Trend: {direction} by ₹{abs(change):.0f} compared to the start of the week."
                 )
-    return "\n".join(lines)
+    return {
+        "total": total_amount,
+        "daily_average": avg,
+        "top_categories": top_categories,
+        "lines": lines,
+    }
 
-def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
-    """Generate a human-readable text summary of the current month's spending.
-    
+
+def get_weekly_summary_text(user_id: Optional[str] = None) -> str:
+    """Generate a human-readable text summary of the past week's spending.
+
     Args:
         user_id: The ID of the user to generate the summary for.
-        
+
     Returns:
-        str: A multi-line summary string comparing the current month to the previous.
+        str: A multi-line summary string.
 
     """
+    data = get_weekly_summary_data(user_id)
+    return "\n".join(data["lines"])
+
+
+def get_monthly_summary_data(user_id: Optional[str] = None) -> Dict[str, Any]:
+    """Calculate structured monthly summary metrics and lines."""
     now = datetime.now(timezone.utc)
     from utils.dates import month_range
 
@@ -223,11 +236,12 @@ def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
         end_inclusive=False,
         user_id=user_id,
     )
+    top_categories = [{"category": c["category"], "total": float(c["total"])} for c in cat_breakdown[:5]]
     daily_rows = get_daily_totals_for_month(now.year, now.month, user_id=user_id)
 
     lines = [f"{now.strftime('%B %Y')} total: ₹{total:.2f}"]
     days_elapsed = max((now.date() - start.date()).days + 1, 1)
-    avg_daily = total / days_elapsed if days_elapsed else 0
+    avg_daily = total / days_elapsed if days_elapsed else 0.0
     lines.append(f"Daily average so far: ₹{avg_daily:.2f}")
     if cat_breakdown:
         cats = ", ".join(f"{c['category']} (₹{c['total']:.0f})" for c in cat_breakdown[:5])
@@ -254,4 +268,23 @@ def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
         lines.append(
             f"Change vs last month: {direction} by ₹{abs(diff):.0f} ({percent:.0f}%)."
         )
-    return "\n".join(lines)
+    return {
+        "total": total,
+        "daily_average": avg_daily,
+        "top_categories": top_categories,
+        "lines": lines,
+    }
+
+
+def get_monthly_summary_text(user_id: Optional[str] = None) -> str:
+    """Generate a human-readable text summary of the current month's spending.
+
+    Args:
+        user_id: The ID of the user to generate the summary for.
+
+    Returns:
+        str: A multi-line summary string comparing the current month to the previous.
+
+    """
+    data = get_monthly_summary_data(user_id)
+    return "\n".join(data["lines"])
