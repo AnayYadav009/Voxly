@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Sun, Moon } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 
 export const SettingsTab = ({ user, dark, toggleDark, loggingEnabled, onToggleLogging, preferenceSaving, onLogout }) => {
   const displayName = user?.display_name || user?.email || 'User';

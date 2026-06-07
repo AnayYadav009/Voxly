@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { titleCase } from '../utils';
-import { CATEGORY_COLORS } from '../constants';
 
 export const AddExpenseForm = ({ onAddExpense, submitting }) => {
   const [amount, setAmount] = useState('');

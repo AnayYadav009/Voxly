@@ -18,8 +18,6 @@ import {
   Wallet,
   Calendar,
   Tag,
-  ArrowUpRight,
-  ArrowDownRight,
   LogOut,
 } from 'lucide-react';
 
@@ -30,12 +28,11 @@ import {
   getMonthlyTotals,
   getRecent,
   getSummary,
-  sendVoiceCommand as apiSendVoiceCommand,
 } from './api';
 import ConfirmDialog from './components/ConfirmDialog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-import { RECENT_LIMIT, CATEGORY_COLORS, BUDGET_DEFAULTS, NAV_TABS, QUICK_COMMANDS } from './constants';
+import { RECENT_LIMIT, NAV_TABS, QUICK_COMMANDS } from './constants';
 import { formatINR, titleCase, getCatColor, parseWeeklySummary, parseMonthlySummary, normalizeCategoryTotals, mapRecentExpenses, normalizeCategoryChart, normalizeDailyChart, normalizeMonthlyChart, computeDailySpending } from './utils';
 import { DonutChart } from './components/DonutChart';
 import { DailyBarChart } from './components/DailyBarChart';
