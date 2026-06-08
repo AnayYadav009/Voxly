@@ -134,7 +134,12 @@ def api_add():
         return _error(error_message, 400)
 
     try:
-        expense_id = add_expense(amount, category, user_id=user["id"])
+        expense_id = add_expense(
+            amount,
+            category,
+            description=data.get("description"),
+            user_id=user["id"],
+        )
         log_info("Expense added via API (id=%s)", expense_id)
         return jsonify(
             {
