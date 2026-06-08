@@ -2,12 +2,11 @@ import sqlite3
 from contextlib import contextmanager
 import pytest
 from app import app
-from database import create_table, create_user, get_db
+from database import create_table, create_user
 from extensions import limiter
 import summary_module
 import visual_module
 import database
-import voice_module
 import routes.voice
 
 @pytest.fixture(autouse=True)

@@ -613,3 +613,18 @@ def test_delete_expense_unauthenticated(temp_db):
         res = client.delete("/api/expenses/1")
     assert res.status_code in (401, 403)
 
+
+def test_csp_security_headers():
+    """Verify that Content-Security-Policy and other security headers are set correctly."""
+    with app.test_client() as client:
+        res = client.get("/api/health")
+        assert res.status_code == 200
+        assert res.headers.get("X-Content-Type-Options") == "nosniff"
+        assert res.headers.get("X-Frame-Options") == "DENY"
+        
+        csp = res.headers.get("Content-Security-Policy", "")
+        assert "default-src 'self'" in csp
+        assert "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com" in csp
+        assert "font-src 'self' https://fonts.gstatic.com" in csp
+
+

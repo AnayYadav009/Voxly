@@ -23,6 +23,7 @@ import {
 
 import {
   addExpense as apiAddExpense,
+  deleteExpense,
   getCategoryBreakdown,
   getDailyTotals,
   getMonthlyTotals,
@@ -1008,11 +1009,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
 
   const handleDeleteExpense = useCallback(async (expenseId) => {
     try {
-      const resp = await fetch(`/api/expenses/${expenseId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('voxly_token')}` },
-      });
-      if (!resp.ok) throw new Error('Failed to delete');
+      await deleteExpense(expenseId);
       addToast('Expense deleted.', 'success');
       await loadData(true);
     } catch (err) {

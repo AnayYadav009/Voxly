@@ -199,6 +199,17 @@ def create_connection(db_name: str = DB_NAME):
 def get_db(db_name: str = DB_NAME):
     """Context manager for DB connections."""
     pid = os.getpid()
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.execute("SELECT 1")
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            _local.conn = None
+
     if getattr(_local, "pid", None) != pid or getattr(_local, "conn", None) is None:
         _local.pid = pid
         _local.conn = create_connection(db_name)
@@ -257,6 +268,11 @@ def create_table() -> None:
     Raises on failure — don't swallow schema errors at startup.
     """
     with get_db() as conn:
+        if not _USE_TURSO:
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except Exception:
+                pass
         _ensure_expense_user_column(conn)
         _ensure_user_logging_column(conn)
         _ensure_user_logout_column(conn)
@@ -268,12 +284,15 @@ def create_table() -> None:
 
 # Automatically ensure schema on import in normal runs.
 # Ensure schema lazily instead of on import, so we don't start Tokio before fork
+_schema_lock = threading.Lock()
 _schema_ensured = False
 def ensure_schema_once():
     global _schema_ensured
     if not _schema_ensured:
-        create_table()
-        _schema_ensured = True
+        with _schema_lock:
+            if not _schema_ensured:
+                create_table()
+                _schema_ensured = True
 
 def _user_where(user_id: Optional[str], prefix: str = "WHERE") -> str:
     if not user_id:

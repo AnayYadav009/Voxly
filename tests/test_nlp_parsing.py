@@ -158,3 +158,38 @@ def test_unknown_input(monkeypatch):
     })
     assert res["action"] == "unknown"
     assert "purple monkey dishwasher" in res["raw"]
+
+
+def test_offline_fallback_exception(monkeypatch):
+    # Simulate API failure
+    def fail_client():
+        raise RuntimeError("API key invalid")
+    monkeypatch.setattr(voice_nlp, "_get_client", fail_client)
+
+    # Test simple add
+    res = voice_nlp.parse_expense("add 500 food")
+    assert res["action"] == "add"
+    assert res["amount"] == 500.0
+    assert res["category"] == "food"
+
+    # Test weekly summary
+    res = voice_nlp.parse_expense("weekly summary")
+    assert res["action"] == "weekly"
+
+    # Test budget warning parsing
+    res = voice_nlp.parse_expense("set budget for utilities to 4500 warn me at 70 percent")
+    assert res["action"] == "set_budget"
+    assert res["amount"] == 4500.0
+    assert res["category"] == "utilities"
+    assert res["warn_ratio"] == 0.7
+
+    # Test delete
+    res = voice_nlp.parse_expense("delete last expense")
+    assert res["action"] == "delete"
+
+    # Test number words
+    res = voice_nlp.parse_expense("spent two hundred on groceries")
+    assert res["action"] == "add"
+    assert res["amount"] == 200.0
+    assert res["category"] == "food"
+

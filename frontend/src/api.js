@@ -202,6 +202,11 @@ export const updateExpense = (id, payload) =>
     body: JSON.stringify(payload),
   });
 
+export const deleteExpense = (id) =>
+  apiFetch(`/api/expenses/${id}`, {
+    method: "DELETE",
+  });
+
 export const sendVoiceCommand = (command) =>
   apiFetch("/api/voice_command", {
     method: "POST",
