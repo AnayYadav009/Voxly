@@ -198,21 +198,26 @@ def create_connection(db_name: str = DB_NAME):
 @contextmanager
 def get_db(db_name: str = DB_NAME):
     """Context manager for DB connections."""
+    import time
     pid = os.getpid()
     conn = getattr(_local, "conn", None)
     if conn is not None:
-        try:
-            conn.execute("SELECT 1")
-        except Exception:
+        now = time.time()
+        if now - getattr(_local, "last_verified", 0) > 10.0:
             try:
-                conn.close()
+                conn.execute("SELECT 1")
+                _local.last_verified = now
             except Exception:
-                pass
-            _local.conn = None
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                _local.conn = None
 
     if getattr(_local, "pid", None) != pid or getattr(_local, "conn", None) is None:
         _local.pid = pid
         _local.conn = create_connection(db_name)
+        _local.last_verified = time.time()
     try:
         yield _local.conn
     except Exception:
