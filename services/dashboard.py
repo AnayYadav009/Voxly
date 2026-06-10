@@ -56,7 +56,8 @@ def _serialize_daily_totals(days: int = 7, user_id: Optional[str] = None) -> Dic
         str(row["date"]): float(row["total"])
         for row in rows
     }
-    today = datetime.now().date()
+    from utils.dates import get_local_now
+    today = get_local_now().date()
     start_date = today - timedelta(days=days - 1)
     series = []
     for offset in range(days):
@@ -78,7 +79,8 @@ def _serialize_monthly_totals(months: int = 6, user_id: Optional[str] = None) ->
         str(row["month"]): float(row["total"])
         for row in rows
     }
-    first_of_month = datetime.now().replace(day=1)
+    from utils.dates import get_local_now
+    first_of_month = get_local_now().replace(day=1)
     months_sequence = []
     current = first_of_month
     for _ in range(max(months, 1)):
@@ -163,7 +165,8 @@ def _build_dashboard_context(user_id: Optional[str] = None, fields: Optional[Set
     budget_statuses = evaluate_monthly_budgets(user_id=user_id) if user_id and needs_budgets else []
 
     if user_id and bool({"total_today", "monthly_total", "category_totals", "recent_expenses"} & requested):
-        now = datetime.now()
+        from utils.dates import get_local_now
+        now = get_local_now()
         snapshot = get_dashboard_snapshot(user_id, now.year, now.month)
         total_today = snapshot["total_today"]
         monthly_total = snapshot["monthly_total"]

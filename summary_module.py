@@ -65,7 +65,8 @@ def get_monthly_total(
         float: Total expense amount for the specified month.
 
     """
-    now = datetime.now(timezone.utc)
+    from utils.dates import get_local_now
+    now = get_local_now()
     year = year or now.year
     month = month or now.month
     from utils.dates import month_range
@@ -139,7 +140,8 @@ def get_daily_totals(days: int = 7, user_id: Optional[str] = None) -> List[Dict[
         List[Dict[str, float]]: A list of dictionaries with 'date' and 'total'.
 
     """
-    start = datetime.now(timezone.utc) - timedelta(days=days - 1)
+    from utils.dates import get_local_now
+    start = get_local_now() - timedelta(days=days - 1)
     try:
         with get_db() as conn:
             query = (
@@ -169,7 +171,8 @@ def get_weekly_summary_data(user_id: Optional[str] = None) -> Dict[str, Any]:
     totals = get_daily_totals(days=7, user_id=user_id)
     total_amount = sum(row["total"] for row in totals)
     avg = total_amount / 7 if totals else 0.0
-    today = datetime.now(timezone.utc)
+    from utils.dates import get_local_now
+    today = get_local_now()
     start = (today - timedelta(days=6)).strftime(DATE_FORMAT)
     end = today.strftime(DATE_FORMAT)
     top_cats = get_expenses_by_category(start, end, user_id=user_id)[:3]
@@ -223,7 +226,8 @@ def get_weekly_summary_text(user_id: Optional[str] = None) -> str:
 
 def get_monthly_summary_data(user_id: Optional[str] = None) -> Dict[str, Any]:
     """Calculate structured monthly summary metrics and lines."""
-    now = datetime.now(timezone.utc)
+    from utils.dates import get_local_now
+    now = get_local_now()
     from utils.dates import month_range
 
     start, next_month = month_range(now.year, now.month)

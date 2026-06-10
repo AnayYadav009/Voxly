@@ -312,12 +312,14 @@ def _user_and(user_id: Optional[str]) -> str:
 def _normalize_date(date: Optional[str] = None) -> str:
     if date:
         return date
-    return datetime.now(timezone.utc).strftime(DATE_FORMAT)
+    from utils.dates import get_local_now
+    return get_local_now().strftime(DATE_FORMAT)
 
 def _normalize_time(time_str: Optional[str] = None) -> str:
     if time_str:
         return time_str
-    return datetime.now(timezone.utc).strftime("%H:%M:%S")
+    from utils.dates import get_local_now
+    return get_local_now().strftime("%H:%M:%S")
 
 def create_user(email: str, password_hash: str, display_name: Optional[str] = None) -> Dict[str, Any]:
     """Create user."""
@@ -782,7 +784,8 @@ def update_expense(
 
 def get_weekly_summary(weeks: int = 1, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get weekly summary."""
-    end_date = datetime.now(timezone.utc)
+    from utils.dates import get_local_now
+    end_date = get_local_now()
     start_date = end_date - timedelta(weeks=weeks)
     try:
         with get_db() as conn:
@@ -814,7 +817,8 @@ def get_monthly_summary(
     user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get monthly summary."""
-    now = datetime.now(timezone.utc)
+    from utils.dates import get_local_now
+    now = get_local_now()
     year = year or now.year
     month = month or now.month
     from utils.dates import month_range
@@ -852,7 +856,8 @@ def get_monthly_totals_by_category(
     user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get monthly totals by category."""
-    now = datetime.now(timezone.utc)
+    from utils.dates import get_local_now
+    now = get_local_now()
     year = year or now.year
     month = month or now.month
     from utils.dates import month_range
@@ -902,8 +907,9 @@ def get_recurring_expenses(
         last_date, next_expected_date, confidence ('high'|'medium'|'low')
     """
     from datetime import datetime, timedelta
+    from utils.dates import get_local_now
 
-    start_date = (datetime.now() - timedelta(days=lookback_days)).strftime(DATE_FORMAT)
+    start_date = (get_local_now() - timedelta(days=lookback_days)).strftime(DATE_FORMAT)
     try:
         with get_db() as conn:
             where = "WHERE date >= ?"
@@ -1028,7 +1034,8 @@ def get_dashboard_snapshot(user_id: str, year: int, month: int) -> dict:
     """Batch fetch all data needed for the dashboard in a single connection.
     Includes today's total, monthly total, category totals, recent expenses, and sums for charts.
     """
-    now = datetime.now()
+    from utils.dates import get_local_now
+    now = get_local_now()
     today = now.strftime("%Y-%m-%d")
     from utils.dates import month_range
 

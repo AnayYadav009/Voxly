@@ -253,7 +253,8 @@ def api_forecast():
             "message": "Not enough data yet. Add expenses across at least 2 months for a forecast.",
         })
 
-    today = date.today()
+    from utils.dates import get_local_now
+    today = get_local_now().date()
     current_month_key = today.strftime("%Y-%m")
 
     complete = df[df["month"] != current_month_key].copy()

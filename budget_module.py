@@ -144,7 +144,8 @@ def evaluate_monthly_budgets(
     month: Optional[int] = None,
     user_id: Optional[str] = None,
 ) -> List[BudgetStatus]:
-    now = datetime.now()
+    from utils.dates import get_local_now
+    now = get_local_now()
     year = year or now.year
     month = month or now.month
 

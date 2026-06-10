@@ -73,6 +73,9 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_ENABLED = bool(GROQ_API_KEY)
 
+VOXLY_TIMEZONE = os.environ.get("VOXLY_TIMEZONE", "Asia/Kolkata")
+
+
 def init_directories() -> None:
     """Create required runtime directories. Call once at application startup."""
     os.makedirs(LOG_DIR, exist_ok=True)
