@@ -1,6 +1,4 @@
-import pytest
 from zoneinfo import ZoneInfo
-from datetime import datetime
 from utils.dates import get_timezone, get_local_now
 from database import _normalize_date, _normalize_time
 

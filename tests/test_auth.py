@@ -16,8 +16,7 @@ import database  # noqa: E402
 import summary_module  # noqa: E402
 import visual_module  # noqa: E402
 from app import app  # noqa: E402
-from auth import create_access_token  # noqa: E402
-from database import create_table, create_user  # noqa: E402
+from database import create_table  # noqa: E402
 
 app.config["TESTING"] = True
 

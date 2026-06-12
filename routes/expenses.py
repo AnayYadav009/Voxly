@@ -1,13 +1,10 @@
 import io
 import csv
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
 from flask import Blueprint, request, jsonify, Response
 
 from app import (
     _require_authenticated_user,
     _unauthorized_response,
-    _should_log_commands,
     _error,
 )
 from extensions import limiter
@@ -23,7 +20,6 @@ from database import (
     get_all_expenses,
     get_cached_insight,
     save_insight,
-    log_command_event,
 )
 from budget_module import set_budget_limit, get_budget_limits, check_and_trigger_budget_alert
 from visual_module import get_monthly_totals_by_month
@@ -239,7 +235,6 @@ def api_forecast():
         return _unauthorized_response()
 
     import numpy as np
-    from datetime import date
 
     user_id = user["id"]
 

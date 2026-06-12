@@ -490,7 +490,7 @@ def test_probe_requests_do_not_initialize_schema(monkeypatch):
 
 def test_refresh_token_flow(temp_db):
     client = app.test_client()
-    reg = client.post("/api/auth/register", json={
+    client.post("/api/auth/register", json={
         "email": "refresh@example.com",
         "password": "Refresh1Test",
     })

@@ -4,7 +4,7 @@ Provides business logic for calculating totals, averages, and generating
 human-readable summary strings for voice and text interfaces.
 """
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import DATE_FORMAT

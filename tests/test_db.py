@@ -1,4 +1,3 @@
-import pytest
 from database import create_connection, get_db
 
 def test_create_connection(tmp_path):

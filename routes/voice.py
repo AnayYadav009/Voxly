@@ -2,9 +2,8 @@ import os
 import unicodedata
 import requests
 from dataclasses import asdict
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
-from flask import Blueprint, request, jsonify, make_response, g, Response, stream_with_context
+from typing import Dict, Any
+from flask import Blueprint, request, jsonify, Response, stream_with_context
 
 # from app.py
 from app import (
@@ -15,7 +14,6 @@ from app import (
     _should_log_commands,
     _user_preferences_payload,
     _error,
-    _get_last_command,
     _set_last_command,
 )
 from extensions import limiter
@@ -32,23 +30,19 @@ from services.dashboard import (
 )
 from services.validation import sanitize_category, validate_expense
 from database import (
-    add_expense, create_connection, update_expense, get_all_expenses,
-    get_cached_insight, save_insight, log_command_event, update_user_log_opt_in,
+    add_expense, log_command_event, update_user_log_opt_in,
     delete_last_expense, get_recent_expenses, get_total_today
 )
 from budget_module import (
     evaluate_monthly_budgets,
-    get_alert_for_category,
     get_budget_limits,
     remove_budget_limit,
     set_budget_limit,
     check_and_trigger_budget_alert,
 )
-from summary_module import get_monthly_summary_text, get_weekly_summary_text, get_monthly_total
-from visual_module import generate_all_charts, get_category_breakdown, get_monthly_totals_by_month, get_recent_daily_totals
-from logger import log_error, log_info
-from insight_module import generate_insight
-from voice_module import parse_expense
+from summary_module import get_monthly_summary_text, get_weekly_summary_text
+from logger import log_error
+from voice_nlp import parse_expense
 
 voice_bp = Blueprint("voice", __name__, url_prefix="/api")
 MAX_COMMAND_LENGTH = 500
@@ -136,7 +130,7 @@ def api_voice_command():
                         }), 400
 
                     try:
-                        expense_id = add_expense(
+                        add_expense(
                             amount_val,
                             category,
                             date=intent.get("date"),

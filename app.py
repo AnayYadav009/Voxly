@@ -4,7 +4,7 @@ import os
 import json
 from typing import Any, Dict, Optional
 
-from flask import Flask, jsonify, request, send_from_directory, g, make_response
+from flask import Flask, jsonify, request, send_from_directory, g
 from flask_cors import CORS
 from flask_limiter import Limiter
 
@@ -28,7 +28,7 @@ from database import (
     purge_expired_revocations,
 )
 from extensions import limiter as _limiter
-from voice_module import parse_expense
+
 from flasgger import Swagger
 
 limiter: Limiter = _limiter

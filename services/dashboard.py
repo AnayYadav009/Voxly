@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from budget_module import (

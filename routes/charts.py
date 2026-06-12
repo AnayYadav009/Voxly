@@ -6,7 +6,6 @@ from app import (
     _unauthorized_response,
     _error,
 )
-from extensions import limiter
 from services.dashboard import (
     _serialize_category_breakdown,
     _serialize_daily_totals,

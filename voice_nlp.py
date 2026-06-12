@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from config import GROQ_API_KEY, GROQ_MODEL
 
