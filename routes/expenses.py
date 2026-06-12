@@ -25,7 +25,7 @@ from database import (
     save_insight,
     log_command_event,
 )
-from budget_module import set_budget_limit, get_budget_limits
+from budget_module import set_budget_limit, get_budget_limits, check_and_trigger_budget_alert
 from visual_module import get_monthly_totals_by_month
 from logger import log_error, log_info
 from insight_module import generate_insight
@@ -141,6 +141,8 @@ def api_add():
             user_id=user["id"],
         )
         log_info("Expense added via API (id=%s)", expense_id)
+        # Check and trigger push warning if budget threshold breached
+        check_and_trigger_budget_alert(user["id"], category)
         return jsonify(
             {
                 "message": f"Added ₹{amount:.2f} to {category}.",
@@ -389,3 +391,63 @@ def api_dashboard():
     except Exception as exc:
         log_error("Dashboard endpoint failed: %s", exc)
         return _error("Failed to load dashboard.", 500)
+
+
+@expenses_bp.route("/expenses/bulk_sync", methods=["POST"])
+def api_bulk_sync():
+    """Sync offline recorded expenses in a bulk transaction block."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+
+    data = request.get_json(silent=True) or {}
+    expenses = data.get("expenses", [])
+    if not isinstance(expenses, list):
+        return _error("Invalid bulk expenses format. Expected list.", 400)
+
+    from database import get_db
+    synced_count = 0
+    errors = []
+
+    try:
+        with get_db() as conn:
+            for item in expenses:
+                try:
+                    amount = float(item.get("amount", 0))
+                    category = sanitize_category(item.get("category", ""))
+                except (ValueError, TypeError):
+                    errors.append(f"Invalid parameters: {item}")
+                    continue
+
+                if amount <= 0 or not category:
+                    errors.append(f"Invalid values: amount={amount}, category={category}")
+                    continue
+
+                is_valid, error_msg = validate_expense(amount, category)
+                if not is_valid:
+                    errors.append(error_msg)
+                    continue
+
+                try:
+                    add_expense(
+                        amount,
+                        category,
+                        description=item.get("description"),
+                        date=item.get("date"),
+                        user_id=user["id"]
+                    )
+                    synced_count += 1
+                except Exception as exc:
+                    errors.append(f"Insert failed for item {item}: {exc}")
+
+            conn.commit()
+    except Exception as exc:
+        log_error("Bulk sync transaction failed: %s", exc)
+        return _error("Failed to sync expenses bulk block.", 500)
+
+    return jsonify({
+        "success": True,
+        "count": synced_count,
+        "errors": errors
+    })
+

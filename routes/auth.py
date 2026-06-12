@@ -5,7 +5,7 @@ from flask import Blueprint, request, jsonify, make_response, g
 from app import _error
 
 from config import ACCESS_TOKEN_EXPIRES_MINUTES, REFRESH_TOKEN_EXPIRES_DAYS
-from database import get_user_by_email, create_user, touch_user_timestamp, get_user_by_id, seed_default_budgets, update_last_logout, revoke_token
+from database import get_user_by_email, create_user, touch_user_timestamp, get_user_by_id, seed_default_budgets, update_last_logout, revoke_token, add_push_subscription
 from auth import (
     hash_password,
     PasswordPolicyError,
@@ -87,7 +87,35 @@ def _auth_success_response(user: Dict[str, Any]):
 @auth_bp.route("/register", methods=["POST"])
 @limiter.limit("5 per minute; 20 per hour")
 def api_auth_register():
-    """Handle API auth register."""
+    """
+    Handle API auth register.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              example: test@example.com
+            password:
+              type: string
+              example: Password123
+            name:
+              type: string
+              example: Priya
+    responses:
+      200:
+        description: User registered successfully
+      400:
+        description: Invalid request parameters
+      409:
+        description: Email already in use
+    """
     data = request.get_json(silent=True) or {}
     email = _normalize_email(data.get("email", ""))
     password = str(data.get("password", ""))
@@ -114,7 +142,32 @@ def api_auth_register():
 @auth_bp.route("/login", methods=["POST"])
 @limiter.limit("10 per minute; 50 per hour")
 def api_auth_login():
-    """Handle API auth login."""
+    """
+    Handle API auth login.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            email:
+              type: string
+              example: test@example.com
+            password:
+              type: string
+              example: Password123
+    responses:
+      200:
+        description: User logged in successfully
+      400:
+        description: Email and password required
+      401:
+        description: Invalid credentials
+    """
     data = request.get_json(silent=True) or {}
     email = _normalize_email(data.get("email", ""))
     password = str(data.get("password", ""))
@@ -201,3 +254,31 @@ def api_auth_refresh():
         path="/api/auth/refresh",
     )
     return response
+
+
+@auth_bp.route("/notifications/subscribe", methods=["POST"])
+@limiter.limit("5 per minute")
+def api_subscribe_push():
+    """Subscribe user browser socket to receive budget warnings."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    
+    subscription = request.get_json(silent=True) or {}
+    if not subscription:
+        return _error("Subscription object is required.", 400)
+        
+    import json
+    try:
+        add_push_subscription(user["id"], json.dumps(subscription))
+        return jsonify({"success": True, "message": "Subscription stored successfully."})
+    except Exception as exc:
+        log_error("Notification subscription route error: %s", exc)
+        return _error("Failed to save subscription.", 500)
+
+
+@auth_bp.route("/notifications/vapid_public_key", methods=["GET"])
+def api_vapid_public_key():
+    """Retrieve VAPID public key for generating browser push subscriptions."""
+    return jsonify({"public_key": os.environ.get("VAPID_PUBLIC_KEY", "")})
+

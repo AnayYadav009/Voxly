@@ -36,7 +36,7 @@
       "name": "Add expense",
       "short_name": "Add",
       "description": "Jump straight to the add-expense form.",
-      "url": "/app#add-expense"
+      "url": "/add-expense"
     },
     {
       "name": "View summaries",

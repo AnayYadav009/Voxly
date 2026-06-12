@@ -9,7 +9,7 @@ from config import GROQ_API_KEY, GROQ_MODEL
 _groq_client = None
 
 
-def _get_client() -> Groq:
+def _get_client() -> Any:
     global _groq_client
     if _groq_client is None:
         try:
@@ -28,63 +28,61 @@ def _get_client() -> Groq:
 
 _SYSTEM_PROMPT = """
 You are a voice command parser for a personal finance tracker app called Voxly.
-The user speaks a command and you must return ONLY a valid JSON object — no prose,
-no markdown, no explanation, just the raw JSON.
+The user speaks a command (which can contain multiple intents/actions combined) and you must return ONLY a valid JSON object containing an array under the "intents" key. No prose, no markdown, just raw JSON.
 
-Supported actions and their required fields:
+Output JSON structure:
+{"intents": [{"action": "<action_name>", ...fields...}]}
 
-1. add an expense:
-   {"action": "add", "amount": <number>, "category": "<string>", "date": "<YYYY-MM-DD or null>", "description": "<string or null>"}
+Supported actions and their fields:
+1. add_expense (equivalent to adding an expense):
+   {"action": "add_expense", "amount": <number>, "category": "<string>", "date": "<YYYY-MM-DD or null>", "description": "<string or null>"}
 
-2. delete the last expense:
-   {"action": "delete"}
+2. delete_expense (equivalent to delete last expense):
+   {"action": "delete_expense"}
 
-3. show today's balance / total:
-   {"action": "balance"}
+3. check_balance (equivalent to check total/balance today):
+   {"action": "check_balance"}
 
-4. show recent expenses:
-   {"action": "recent"}
+4. recent_expenses (equivalent to showing recent expenses):
+   {"action": "recent_expenses"}
 
-5. weekly summary:
-   {"action": "weekly"}
+5. weekly_summary (weekly overview):
+   {"action": "weekly_summary"}
 
-6. monthly summary:
-   {"action": "monthly"}
+6. monthly_summary (monthly overview):
+   {"action": "monthly_summary"}
 
-7. set a budget limit:
+7. set_budget (set budget limit):
    {"action": "set_budget", "category": "<string>", "amount": <number>, "warn_ratio": <0.0-1.0 or null>}
 
-8. show budget status (all or one category):
-   {"action": "show_budgets", "category": "<string or null>"}
+8. get_budget_status (show budget limit/status):
+   {"action": "get_budget_status", "category": "<string or null>"}
 
-9. remove a budget:
+9. remove_budget (delete a budget limit):
    {"action": "remove_budget", "category": "<string>"}
 
-10. chart / visual summary:
+10. chart_summary (chart/graph/visual breakdown):
     {"action": "chart_summary"}
 
-11. help:
+11. help (requests command list):
     {"action": "help"}
 
-12. exit / stop / quit:
+12. exit (exit or stop):
     {"action": "exit"}
 
-13. repeat last command:
+13. repeat (repeat last command):
     {"action": "repeat"}
 
-14. unrecognisable input:
+14. unknown (unrecognized intent):
     {"action": "unknown"}
 
 Rules:
-- amount must always be a plain number (e.g. 500, not "500 rupees").
-- category must be lowercase, one word from: food, transport, entertainment,
-  shopping, utilities, health, education, rent, savings, personal, gifts,
-  charity, insurance, fees. If none match, use "uncategorized".
+- If the query contains multiple actions (e.g., "I spent $5 on coffee, $20 on gas, and what is my budget status?"), list each as a separate intent in the array in order of appearance.
+- amount must always be a plain number (e.g., 500, not "500 rupees").
+- category must be lowercase, one word from: food, transport, entertainment, shopping, utilities, health, education, rent, savings, personal, gifts, charity, insurance, fees. If none match, use "uncategorized".
 - date must be ISO format YYYY-MM-DD if mentioned, otherwise null.
-- warn_ratio must be a decimal between 0.0 and 1.0 (e.g. "80 percent" → 0.8).
-  If not mentioned, use null.
-- description is any extra detail the user mentioned beyond amount and category.
-  If none, use null.
+- warn_ratio must be a decimal between 0.0 and 1.0 (e.g., "80 percent" -> 0.8). If not mentioned, use null.
+- description is any extra detail the user mentioned beyond amount and category. If none, use null.
 - Never return anything except the JSON object.
 """.strip()
 
@@ -266,10 +264,126 @@ def _parse_expense_offline(text: str) -> Dict[str, Any]:
     return {"action": "unknown", "raw": text}
 
 
+def _normalize_parsed_intents(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    if not parsed:
+        return {"intents": [], "action": "none"}
+    
+    if parsed.get("action") == "none":
+        return {"intents": [], "action": "none"}
+        
+    intents = []
+    # If it's already in the multi-intent intents array format, normalize the action names if needed
+    if "intents" in parsed and isinstance(parsed["intents"], list):
+        for intent in parsed["intents"]:
+            action = intent.get("action")
+            mapping = {
+                "add": "add_expense",
+                "delete": "delete_expense",
+                "balance": "check_balance",
+                "recent": "recent_expenses",
+                "weekly": "weekly_summary",
+                "monthly": "monthly_summary",
+                "show_budgets": "get_budget_status",
+                "unknown": "unknown",
+            }
+            if action in mapping:
+                intent["action"] = mapping[action]
+            intents.append(intent)
+    else:
+        # If it is a single action dictionary (from offline parser or older Groq prompt format)
+        action = parsed.get("action", "unknown")
+        mapping = {
+            "add": "add_expense",
+            "delete": "delete_expense",
+            "balance": "check_balance",
+            "recent": "recent_expenses",
+            "weekly": "weekly_summary",
+            "monthly": "monthly_summary",
+            "show_budgets": "get_budget_status",
+            "set_budget": "set_budget",
+            "remove_budget": "remove_budget",
+            "chart_summary": "chart_summary",
+            "help": "help",
+            "exit": "exit",
+            "repeat": "repeat",
+            "unknown": "unknown",
+            "none": "unknown",
+        }
+        
+        mapped_action = mapping.get(action, action)
+        if mapped_action == "add_expense":
+            intent = {
+                "action": "add_expense",
+                "amount": parsed.get("amount"),
+                "category": parsed.get("category"),
+                "date": parsed.get("date"),
+                "description": parsed.get("description")
+            }
+        elif mapped_action == "set_budget":
+            intent = {
+                "action": "set_budget",
+                "category": parsed.get("category"),
+                "amount": parsed.get("amount"),
+                "warn_ratio": parsed.get("warn_ratio")
+            }
+        elif mapped_action in ("get_budget_status", "remove_budget"):
+            intent = {
+                "action": mapped_action,
+                "category": parsed.get("category")
+            }
+        else:
+            intent = {
+                "action": mapped_action
+            }
+            if "raw" in parsed:
+                intent["raw"] = parsed["raw"]
+        
+        # If the offline parser matched additional expenses, map them too!
+        intents = [intent]
+        if action == "add" and parsed.get("_additional_expenses"):
+            for extra in parsed["_additional_expenses"]:
+                intents.append({
+                    "action": "add_expense",
+                    "amount": extra.get("amount"),
+                    "category": extra.get("category"),
+                    "date": extra.get("date"),
+                    "description": extra.get("description")
+                })
+                
+    result = {"intents": intents}
+    if intents:
+        first = intents[0]
+        first_action = first["action"]
+        legacy_action_mapping = {
+            "add_expense": "add",
+            "delete_expense": "delete",
+            "check_balance": "balance",
+            "recent_expenses": "recent",
+            "weekly_summary": "weekly",
+            "monthly_summary": "monthly",
+            "get_budget_status": "show_budgets",
+            "set_budget": "set_budget",
+            "remove_budget": "remove_budget",
+            "chart_summary": "chart_summary",
+            "help": "help",
+            "exit": "exit",
+            "repeat": "repeat",
+            "unknown": "unknown",
+        }
+        result["action"] = legacy_action_mapping.get(first_action, first_action)
+        for key in ["amount", "category", "date", "description", "warn_ratio", "raw"]:
+            if key in first:
+                result[key] = first[key]
+    else:
+        result["action"] = "unknown"
+        
+    return result
+
+
 def parse_expense(text: str) -> Dict[str, Any]:
     """Parse a voice command string into a structured action dict using Groq with offline fallback."""
     if not text or not text.strip():
-        return {"action": "none"}
+        return {"intents": [], "action": "none"}
 
     try:
         client = _get_client()
@@ -285,11 +399,12 @@ def parse_expense(text: str) -> Dict[str, Any]:
         )
         raw = response.choices[0].message.content or "{}"
         parsed = json.loads(raw)
-        if "action" in parsed:
-            return parsed
+        # Verify it parsed intents or has keys
+        if "intents" in parsed or "action" in parsed:
+            return _normalize_parsed_intents(parsed)
     except Exception as exc:
         from logger import log_error
         log_error("Groq parse_expense failed: %s. Using offline parser.", exc)
 
-    return _parse_expense_offline(text)
+    return _normalize_parsed_intents(_parse_expense_offline(text))
 

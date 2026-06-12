@@ -114,6 +114,15 @@ def _decode_token(token: str, expected_type: str) -> Optional[Tuple[str, str]]:
         return None
     user_id = str(payload.get("sub"))
     jti = str(payload.get("jti", ""))
+    
+    from extensions import redis_client
+    if redis_client:
+        try:
+            if redis_client.exists(f"blacklist:{jti}"):
+                return None
+        except Exception:
+            pass
+            
     from database import get_user_by_id
     user = get_user_by_id(user_id)
     if user and user.get("last_logout_at"):

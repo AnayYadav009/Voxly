@@ -1,9 +1,10 @@
 import os
 import unicodedata
+import requests
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
-from flask import Blueprint, request, jsonify, make_response, g, Response
+from flask import Blueprint, request, jsonify, make_response, g, Response, stream_with_context
 
 # from app.py
 from app import (
@@ -27,6 +28,7 @@ from services.dashboard import (
     _safe_limit,
     _serialize_budget_status,
     _summarize_chart_series,
+    _build_dashboard_context,
 )
 from services.validation import sanitize_category, validate_expense
 from database import (
@@ -40,6 +42,7 @@ from budget_module import (
     get_budget_limits,
     remove_budget_limit,
     set_budget_limit,
+    check_and_trigger_budget_alert,
 )
 from summary_module import get_monthly_summary_text, get_weekly_summary_text, get_monthly_total
 from visual_module import generate_all_charts, get_category_breakdown, get_monthly_totals_by_month, get_recent_daily_totals
@@ -72,262 +75,315 @@ def api_voice_command():
         log_error("Failed to parse voice command: %s", exc)
         return _error("Could not understand the command.", 500)
 
-    action = parsed.get("action", "unknown")
-    response: Dict[str, Any] = {"action": action}
+    intents = parsed.get("intents", [])
+    if not intents and "action" in parsed:
+        from voice_nlp import _normalize_parsed_intents
+        parsed = _normalize_parsed_intents(parsed)
+        intents = parsed.get("intents", [])
+
+    if not intents:
+        return jsonify({"reply": "I did not hear a command.", "action": "none"}), 400
 
     if _should_log_commands(user):
         try:
-            entity_keys = ["amount", "category", "date", "warn_ratio"]
-            entities = {key: parsed.get(key) for key in entity_keys if parsed.get(key) is not None}
+            primary_action = intents[0].get("action") if intents else "unknown"
             log_command_event(
                 user_id=user_id,
                 raw_text=command_text,
                 parsed_payload=parsed,
-                intent=action,
-                entities=entities,
+                intent=primary_action,
                 channel="voice",
-                confidence=parsed.get("confidence"),
-                metadata={"payload": {k: payload.get(k) for k in ("limit", "channel") if k in payload}},
+                metadata={"intents_count": len(intents)}
             )
         except Exception as exc:
             log_error("Command logging failed: %s", exc)
 
-    if action == "none":
-        response["reply"] = "I did not hear a command."
-        return jsonify(response), 400
+    replies = []
+    reload_dashboard = False
+    dashboard_overrides = {}
 
-    if action == "unknown":
-        response["reply"] = "I did not understand that. Try saying help."
-        return jsonify(response)
+    from database import get_db
+    try:
+        with get_db() as conn:
+            total_add_expenses = sum(1 for item in intents if item.get("action") == "add_expense")
+            add_expenses_processed = 0
 
-    if action == "help":
-        response["reply"] = VOICE_HELP_TEXT
-        return jsonify(response)
+            for intent in intents:
+                action = intent.get("action", "unknown")
 
-    if action == "repeat":
-        response["reply"] = "The 'repeat' command is not supported in the web API. Please re-send your original command."
-        return jsonify(response)
+                if action == "add_expense":
+                    amount = intent.get("amount")
+                    category = sanitize_category(intent.get("category") or "uncategorized")
+                    try:
+                        amount_val = float(amount) if amount is not None else None
+                    except (TypeError, ValueError):
+                        amount_val = None
+                    if amount_val is None or amount_val <= 0:
+                        conn.rollback()
+                        return jsonify({
+                            "reply": "Please include a valid amount to add an expense.",
+                            "reload": False,
+                            "action": parsed.get("action", "unknown")
+                        }), 400
 
-    if action == "exit":
-        response["reply"] = "The assistant stays ready. Say another command when you are ready."
-        return jsonify(response)
+                    is_valid, error_message = validate_expense(amount_val, category)
+                    if not is_valid:
+                        conn.rollback()
+                        return jsonify({
+                            "reply": error_message,
+                            "reload": False,
+                            "action": parsed.get("action", "unknown")
+                        }), 400
 
-    if action == "add":
-        amount = parsed.get("amount")
-        category = sanitize_category(parsed.get("category") or "uncategorized")
-        if amount is None or float(amount) <= 0:
-            response["reply"] = "Please include a valid amount to add an expense."
-            return jsonify(response), 400
-        is_valid, error_message = validate_expense(float(amount), category)
-        if not is_valid:
-            response["reply"] = error_message
-            return jsonify(response), 400
-        try:
-            expense_id = add_expense(
-                float(amount),
-                category,
-                date=parsed.get("date"),
-                description=parsed.get("description"),
-                user_id=user_id,
-            )
+                    try:
+                        expense_id = add_expense(
+                            amount_val,
+                            category,
+                            date=intent.get("date"),
+                            description=intent.get("description"),
+                            user_id=user_id,
+                        )
+                    except Exception as exc:
+                        log_error("Voice add expense failed: %s", exc)
+                        conn.rollback()
+                        return _error("Failed to add the expense.", 500)
 
-            extra_expenses = parsed.get("_additional_expenses") or []
-            extra_ids = []
-            for extra in extra_expenses:
-                try:
-                    eid = add_expense(
-                        float(extra.get("amount", 0)),
-                        extra.get("category", "uncategorized"),
-                        date=extra.get("date"),
-                        description=extra.get("description"),
-                        user_id=user_id,
-                    )
-                    extra_ids.append(eid)
-                except Exception as exc:
-                    log_error("Failed to add extra expense from multi-item command: %s", exc)
+                    check_and_trigger_budget_alert(user_id, category)
 
-            reply = f"Added ₹{float(amount):.2f} to {category}."
-            if extra_ids:
-                reply += f" Also recorded {len(extra_ids)} additional item(s)."
-            response["reply"] = reply
-            response["expense_id"] = expense_id
-            response["reload"] = True
-            _set_last_command(user_id, parsed)
-            return jsonify(response)
-        except Exception as exc:
-            log_error("Voice add expense failed: %s", exc)
-            return _error("Failed to add the expense.", 500)
+                    if add_expenses_processed == 0:
+                        msg = f"Added ₹{amount_val:.2f} to {category}."
+                        if total_add_expenses > 1:
+                            msg += f" Also recorded {total_add_expenses - 1} additional item(s)."
+                        replies.append(msg)
+                    else:
+                        replies.append(f"Recorded ₹{amount_val:.2f} to {category}.")
 
-    if action == "delete":
-        try:
-            removed_id = delete_last_expense(user_id=user_id)
-        except Exception as exc:
-            log_error("Voice delete expense failed: %s", exc)
-            response["reply"] = "Failed to delete the last expense."
-            return jsonify(response), 500
-        if not removed_id:
-            response["reply"] = "No expense to delete."
-            response["reload"] = False
-            return jsonify(response)
-        response["reply"] = f"Deleted expense number {removed_id}."
-        response["deleted_expense_id"] = removed_id
-        response["reload"] = True
-        return jsonify(response)
+                    add_expenses_processed += 1
+                    reload_dashboard = True
+                    _set_last_command(user_id, intent)
 
-    if action == "balance":
-        total_today = get_total_today(user_id=user_id)
-        response["reply"] = f"Today's total spend is ₹{total_today:.2f}."
-        response["total_today"] = total_today
-        return jsonify(response)
+                elif action == "delete_expense":
+                    try:
+                        removed_id = delete_last_expense(user_id=user_id)
+                    except Exception as exc:
+                        log_error("Voice delete expense failed: %s", exc)
+                        conn.rollback()
+                        return _error("Failed to delete the last expense.", 500)
+                    if not removed_id:
+                        replies.append("No expense to delete.")
+                    else:
+                        replies.append(f"Deleted last expense (ID {removed_id}).")
+                        reload_dashboard = True
 
-    if action == "recent":
-        limit = _safe_limit(payload.get("limit"), default=5)
-        recent_items = get_recent_expenses(limit, user_id=user_id)
-        response["reply"] = "Here are the most recent expenses."
-        response["recent_expenses"] = recent_items
-        return jsonify(response)
+                elif action == "check_balance":
+                    total_today = get_total_today(user_id=user_id)
+                    replies.append(f"Today's total spend is ₹{total_today:.2f}.")
+                    dashboard_overrides["total_today"] = total_today
 
-    if action == "weekly":
-        summary_text = get_weekly_summary_text(user_id=user_id)
-        response["reply"] = summary_text
-        return jsonify(response)
+                elif action == "recent_expenses":
+                    limit = _safe_limit(payload.get("limit"), default=5)
+                    recent_items = get_recent_expenses(limit, user_id=user_id)
+                    replies.append("Here are your recent expenses.")
+                    dashboard_overrides["recent_expenses"] = recent_items
 
-    if action == "monthly":
-        summary_text = get_monthly_summary_text(user_id=user_id)
-        statuses = evaluate_monthly_budgets(user_id=user_id)
-        limits = get_budget_limits(user_id)
-        if statuses:
-            lines = _collect_budget_lines(statuses, limits)
-            summary_text = summary_text + "\n" + "\n".join(lines)
-            response["budget_statuses"] = _serialize_budget_status(statuses)
-            response["budget_lines"] = lines
-        response["reply"] = summary_text
-        return jsonify(response)
+                elif action == "weekly_summary":
+                    summary_text = get_weekly_summary_text(user_id=user_id)
+                    replies.append(summary_text)
 
-    if action == "show_budgets":
-        category = parsed.get("category")
-        limits = get_budget_limits(user_id)
-        statuses = evaluate_monthly_budgets(user_id=user_id)
-        if category:
-            status = _find_budget_status(category, statuses)
-            limit_info = limits.get(category.lower()) if category else None
-            human_name = _humanize_category_name(category)
-            if status:
-                line = _format_budget_status_line(status, limit_info)
-                response["reply"] = line
-                response["budget_status"] = asdict(status)
-            elif limit_info:
-                warn_percent = int(round(limit_info.warn_ratio * 100))
-                response["reply"] = (
-                    f"{human_name} budget is ₹{limit_info.limit:.0f} per month with alerts at {warn_percent}%."
-                )
-                response["budget_limit"] = {
-                    "category": limit_info.category,
-                    "limit": limit_info.limit,
-                    "warn_ratio": limit_info.warn_ratio,
-                }
-            else:
-                response["reply"] = f"No budget configured for {human_name}."
-            if statuses:
-                response["budget_statuses"] = _serialize_budget_status(statuses)
-        else:
-            if statuses:
-                lines = _collect_budget_lines(statuses, limits)
-                response["reply"] = "\n".join(lines)
-                response["budget_statuses"] = _serialize_budget_status(statuses)
-                response["budget_lines"] = lines
-            else:
-                response["reply"] = "No budgets configured."
-        # record command for repeat — applies to both specific-category and full-list
-        return jsonify(response)
+                elif action == "monthly_summary":
+                    summary_text = get_monthly_summary_text(user_id=user_id)
+                    statuses = evaluate_monthly_budgets(user_id=user_id)
+                    limits = get_budget_limits(user_id)
+                    if statuses:
+                        lines = _collect_budget_lines(statuses, limits)
+                        summary_text = summary_text + "\n" + "\n".join(lines)
+                        dashboard_overrides["budget_statuses"] = _serialize_budget_status(statuses)
+                        dashboard_overrides["budget_lines"] = lines
+                    replies.append(summary_text)
 
-    if action == "set_budget":
-        category = parsed.get("category")
-        amount = parsed.get("amount")
-        warn_ratio = parsed.get("warn_ratio")
-        if not category:
-            response["reply"] = "Please specify which category the budget should apply to."
-            return jsonify(response), 400
-        try:
-            limit_value = float(amount) if amount is not None else None
-        except (TypeError, ValueError):
-            limit_value = None
-        if limit_value is None or limit_value <= 0:
-            response["reply"] = "Please provide a positive budget amount."
-            return jsonify(response), 400
-        try:
-            set_budget_limit(category, limit_value, warn_at=warn_ratio if warn_ratio is not None else None, user_id=user_id)
-            log_info(
-                "Voice set budget for user=%s category=%s amount=%s warn_ratio=%s",
-                user_id,
-                category,
-                limit_value,
-                warn_ratio,
-            )
-        except ValueError as exc:
-            response["reply"] = str(exc)
-            return jsonify(response), 400
-        except Exception as exc:
-            log_error("Voice set budget failed: %s", exc)
-            response["reply"] = "Failed to update that budget."
-            return jsonify(response), 500
-        limits = get_budget_limits(user_id)
-        limit_info = limits.get(category.lower())
-        if limit_info:
-            warn_percent = int(round(limit_info.warn_ratio * 100))
-            human_name = _humanize_category_name(category)
-            reply = f"Set {human_name} budget to ₹{limit_info.limit:.0f} with alerts at {warn_percent}%."
-        else:
-            human_name = _humanize_category_name(category)
-            reply = f"Set {human_name} budget to ₹{limit_value:.0f}."
-        response["reply"] = reply
-        response["reload"] = True
-        if limit_info:
-            response["warn_ratio"] = limit_info.warn_ratio
-            statuses = evaluate_monthly_budgets(user_id=user_id)
-            status = _find_budget_status(category, statuses)
-            if status:
-                response["budget_status"] = asdict(status)
-        return jsonify(response)
+                elif action == "get_budget_status":
+                    category = intent.get("category")
+                    limits = get_budget_limits(user_id)
+                    statuses = evaluate_monthly_budgets(user_id=user_id)
+                    if category:
+                        status = _find_budget_status(category, statuses)
+                        limit_info = limits.get(category.lower())
+                        human_name = _humanize_category_name(category)
+                        if status:
+                            line = _format_budget_status_line(status, limit_info)
+                            replies.append(line)
+                            dashboard_overrides["budget_status"] = asdict(status)
+                        elif limit_info:
+                            warn_percent = int(round(limit_info.warn_ratio * 100))
+                            replies.append(f"{human_name} budget is ₹{limit_info.limit:.0f} per month with alerts at {warn_percent}%.")
+                            dashboard_overrides["budget_limit"] = {
+                                "category": limit_info.category,
+                                "limit": limit_info.limit,
+                                "warn_ratio": limit_info.warn_ratio,
+                            }
+                        else:
+                            replies.append(f"No budget configured for {human_name}.")
+                        if statuses:
+                            dashboard_overrides["budget_statuses"] = _serialize_budget_status(statuses)
+                    else:
+                        if statuses:
+                            lines = _collect_budget_lines(statuses, limits)
+                            replies.append("\n".join(lines))
+                            dashboard_overrides["budget_statuses"] = _serialize_budget_status(statuses)
+                            dashboard_overrides["budget_lines"] = lines
+                        else:
+                            replies.append("No budgets configured.")
 
-    if action == "remove_budget":
-        category = parsed.get("category")
-        if not category:
-            response["reply"] = "Please tell me which budget to remove."
-            return jsonify(response), 400
-        try:
-            removed = remove_budget_limit(category, user_id=user_id)
-            log_info("Voice remove budget for user=%s category=%s removed=%s", user_id, category, removed)
-        except ValueError as exc:
-            response["reply"] = str(exc)
-            return jsonify(response), 400
-        except Exception as exc:
-            log_error("Voice remove budget failed: %s", exc)
-            response["reply"] = "Failed to remove that budget."
-            return jsonify(response), 500
-        human_name = _humanize_category_name(category)
-        if not removed:
-            response["reply"] = f"No budget configured for {human_name}."
-            response["reload"] = False
-            return jsonify(response)
-        response["reply"] = f"Removed {human_name} budget."
-        response["reload"] = True
-        return jsonify(response)
+                elif action == "set_budget":
+                    category = intent.get("category")
+                    amount = intent.get("amount")
+                    warn_ratio = intent.get("warn_ratio")
+                    if not category:
+                        conn.rollback()
+                        return jsonify({
+                            "reply": "Please specify which category the budget should apply to.",
+                            "reload": False,
+                            "action": parsed.get("action", "unknown")
+                        }), 400
+                    try:
+                        limit_value = float(amount) if amount is not None else None
+                    except (TypeError, ValueError):
+                        limit_value = None
+                    if limit_value is None or limit_value <= 0:
+                        conn.rollback()
+                        return jsonify({
+                            "reply": "Please provide a positive budget amount.",
+                            "reload": False,
+                            "action": parsed.get("action", "unknown")
+                        }), 400
 
-    if action == "chart_summary":
-        try:
-            series = _build_chart_series(user_id=user_id)
-        except Exception as exc:
-            log_error("Voice chart summary failed: %s", exc)
-            response["reply"] = "Chart data is unavailable right now."
-            return jsonify(response), 500
-        response["chart_series"] = series
-        response["reply"] = _summarize_chart_series(series)
-        # include speak field so frontends can optionally play this text-to-speech
-        response["speak"] = response["reply"]
-        return jsonify(response)
+                    try:
+                        set_budget_limit(category, limit_value, warn_at=warn_ratio, user_id=user_id)
+                    except ValueError as exc:
+                        conn.rollback()
+                        return jsonify({
+                            "reply": str(exc),
+                            "reload": False,
+                            "action": parsed.get("action", "unknown")
+                        }), 400
+                    except Exception as exc:
+                        log_error("Voice set budget failed: %s", exc)
+                        conn.rollback()
+                        return _error("Failed to update that budget.", 500)
 
-    response["reply"] = "That command is not supported yet."
+                    limits = get_budget_limits(user_id)
+                    limit_info = limits.get(category.lower())
+                    statuses = evaluate_monthly_budgets(user_id=user_id)
+                    status = _find_budget_status(category, statuses)
+                    if status:
+                        lines = _collect_budget_lines([status], limits)
+                        replies.append(lines[0])
+                        dashboard_overrides["budget_status"] = asdict(status)
+                    elif limit_info:
+                        warn_percent = int(round(limit_info.warn_ratio * 100))
+                        replies.append(f"Set {_humanize_category_name(category)} budget to ₹{limit_info.limit:.0f} with alerts at {warn_percent}%.")
+                    else:
+                        replies.append(f"Set {_humanize_category_name(category)} budget to ₹{limit_value:.0f}.")
+                    
+                    if statuses:
+                        dashboard_overrides["budget_statuses"] = _serialize_budget_status(statuses)
+                        dashboard_overrides["budget_lines"] = _collect_budget_lines(statuses, limits)
+                    if limit_info:
+                        dashboard_overrides["budget_limit"] = {
+                            "category": limit_info.category,
+                            "limit": limit_info.limit,
+                            "warn_ratio": limit_info.warn_ratio,
+                        }
+                    if warn_ratio is not None:
+                        dashboard_overrides["warn_ratio"] = warn_ratio
+                    reload_dashboard = True
+
+                elif action == "remove_budget":
+                    category = intent.get("category")
+                    if not category:
+                        conn.rollback()
+                        return jsonify({
+                            "reply": "Please tell me which budget to remove.",
+                            "reload": False,
+                            "action": parsed.get("action", "unknown")
+                        }), 400
+                    try:
+                        removed = remove_budget_limit(category, user_id=user_id)
+                    except ValueError as exc:
+                        conn.rollback()
+                        return jsonify({
+                            "reply": str(exc),
+                            "reload": False,
+                            "action": parsed.get("action", "unknown")
+                        }), 400
+                    except Exception as exc:
+                        log_error("Voice remove budget failed: %s", exc)
+                        conn.rollback()
+                        return _error("Failed to remove that budget.", 500)
+
+                    human_name = _humanize_category_name(category)
+                    limits = get_budget_limits(user_id)
+                    statuses = evaluate_monthly_budgets(user_id=user_id)
+                    lines = _collect_budget_lines(statuses, limits) if statuses else []
+                    if removed:
+                        if lines:
+                            replies.append(f"Removed {human_name} budget. " + " ".join(lines))
+                        else:
+                            replies.append(f"Removed {human_name} budget. No budgets remain.")
+                        reload_dashboard = True
+                        dashboard_overrides["removed_budget"] = category.lower()
+                    else:
+                        replies.append(f"No budget configured for {human_name}.")
+                    if statuses:
+                        dashboard_overrides["budget_statuses"] = _serialize_budget_status(statuses)
+                        dashboard_overrides["budget_lines"] = lines
+
+                elif action == "chart_summary":
+                    try:
+                        series = _build_chart_series(user_id=user_id)
+                    except Exception as exc:
+                        log_error("Voice chart summary failed: %s", exc)
+                        conn.rollback()
+                        return _error("Chart data is unavailable right now.", 500)
+                    summary_text = _summarize_chart_series(series)
+                    replies.append(summary_text)
+                    dashboard_overrides["chart_series"] = series
+                    dashboard_overrides["speak"] = summary_text
+
+                elif action == "help":
+                    replies.append(VOICE_HELP_TEXT)
+
+                elif action == "exit":
+                    replies.append("The assistant stays ready. Say another command when you are ready.")
+
+                elif action == "repeat":
+                    replies.append("The 'repeat' command is not supported in the web API. Please re-send your original command.")
+
+                elif action == "unknown":
+                    replies.append("I did not understand that command. Try saying help.")
+
+                else:
+                    replies.append(f"Command '{action}' is not supported yet.")
+
+            conn.commit()
+    except Exception as exc:
+        log_error("Failed to execute voice transaction: %s", exc)
+        return _error("Error executing commands.", 500)
+
+    # Consolidate output response
+    response_reply = " ".join(replies)
+    response = {
+        "reply": response_reply,
+        "reload": reload_dashboard,
+        "action": parsed.get("action", "unknown")
+    }
+    # If reload is required, fetch fresh dashboard snapshot, otherwise merge specific query structures
+    if reload_dashboard:
+        response["dashboard"] = _build_dashboard_context(user_id=user_id)
+    
+    if dashboard_overrides:
+        response.update(dashboard_overrides)
+
     return jsonify(response)
 
 @voice_bp.route("/preferences", methods=["GET", "PUT"])
@@ -352,3 +408,52 @@ def api_preferences():
     update_user_log_opt_in(user["id"], value)
     user["log_opt_in"] = 1 if value else 0
     return jsonify({"preferences": _user_preferences_payload(user)})
+
+
+@voice_bp.route("/voice/tts", methods=["POST"])
+@limiter.limit("30 per minute")
+def api_voice_tts():
+    """High-Fidelity Text-to-Speech endpoint streaming audio chunks from OpenAI TTS API."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return _error("Text is required.", 400)
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        # Fallback if API key is not configured: just log and return 400 or 500
+        return _error("OPENAI_API_KEY is not configured.", 500)
+
+    url = "https://api.openai.com/v1/audio/speech"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "tts-1",
+        "input": text,
+        "voice": "alloy",
+        "response_format": "mp3"
+    }
+
+    try:
+        # Stream audio chunks directly from OpenAI to the client
+        res = requests.post(url, json=payload, headers=headers, stream=True)
+        if res.status_code != 200:
+            log_error("OpenAI TTS request failed: %s", res.text)
+            return _error("Failed to generate speech.", 500)
+
+        def generate():
+            for chunk in res.iter_content(chunk_size=4096):
+                if chunk:
+                    yield chunk
+
+        return Response(stream_with_context(generate()), mimetype="audio/mpeg")
+    except Exception as exc:
+        log_error("OpenAI TTS exception: %s", exc)
+        return _error("Failed to communicate with TTS service.", 500)
+

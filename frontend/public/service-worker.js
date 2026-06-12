@@ -238,3 +238,27 @@ self.addEventListener('message', (event) => {
     syncPendingExpenses();
   }
 });
+
+// ─── Push Notifications ───────────────────────────────────────────────────────
+
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  try {
+    const payload = event.data.json();
+    const options = {
+      body: payload.body,
+      icon: '/logo192.png',
+      badge: '/logo192.png',
+      data: {
+        category: payload.category,
+        level: payload.level
+      }
+    };
+    event.waitUntil(
+      self.registration.showNotification(payload.title, options)
+    );
+  } catch (err) {
+    console.error('Failed to handle push event:', err);
+  }
+});
+

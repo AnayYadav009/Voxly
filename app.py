@@ -29,10 +29,16 @@ from database import (
 )
 from extensions import limiter as _limiter
 from voice_module import parse_expense
+from flasgger import Swagger
 
 limiter: Limiter = _limiter
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+app.config["SWAGGER"] = {
+    "title": "Voxly API Docs",
+    "uiversion": 3
+}
+swagger = Swagger(app)
 app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 init_directories()
@@ -45,12 +51,16 @@ _last_command_fallback: Dict[str, Dict[str, Any]] = {}
 _redis_client = None
 if redis is not None:
     try:
-        _redis_client = redis.Redis.from_url(
+        _client = redis.Redis.from_url(
             os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
             decode_responses=True,
+            socket_timeout=1.0,
         )
+        _client.ping()
+        _redis_client = _client
     except Exception:
         _redis_client = None
+
 
 limiter.init_app(app)
 

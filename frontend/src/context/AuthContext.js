@@ -10,6 +10,7 @@ import {
   persistAuthTokens,
   registerUser,
   updatePreferences,
+  subscribeUserToPush,
 } from '../api';
 
 const DEFAULT_PREFERENCES = { log_opt_in: false };
@@ -78,6 +79,12 @@ export const AuthProvider = ({ children }) => {
     }
     loadPreferences();
   }, [loadPreferences, user]);
+
+  useEffect(() => {
+    if (user) {
+      subscribeUserToPush();
+    }
+  }, [user]);
 
   useEffect(() => {
     const unsubscribe = onAuthFailure(() => {

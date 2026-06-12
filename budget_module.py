@@ -221,6 +221,67 @@ def summarize_alerts(statuses: List[BudgetStatus]) -> List[str]:
     """
     return [status.message for status in statuses if status.level in {"warning", "critical"}]
 
+def check_and_trigger_budget_alert(user_id: str, category: str) -> None:
+    """Evaluate budget alert for category, and trigger asynchronous push warning if breached."""
+    import os
+    import json
+    import threading
+    from pywebpush import webpush, WebPushException
+    from database import get_db
+
+    status = get_alert_for_category(category, user_id)
+    if not status or status.level not in {"warning", "critical"}:
+        return
+
+    # Retrieve subscriptions
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                "SELECT subscription_json FROM web_push_subscriptions WHERE user_id = ?",
+                (user_id,)
+            )
+            rows = cur.fetchall()
+    except Exception as exc:
+        log_error("Failed to fetch push subscriptions: %s", exc)
+        return
+
+    if not rows:
+        return
+
+    # VAPID setup
+    vapid_private = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+    vapid_public = os.environ.get("VAPID_PUBLIC_KEY", "").strip()
+    if not vapid_private or not vapid_public:
+        log_info("VAPID keys not configured in environment. Skipping push warning.")
+        return
+
+    payload = {
+        "title": f"Budget Alert: {category.title()}",
+        "body": status.message,
+        "category": category,
+        "level": status.level
+    }
+
+    def send_push(subscription_json: str):
+        try:
+            sub_info = json.loads(subscription_json)
+            webpush(
+                subscription_info=sub_info,
+                data=json.dumps(payload),
+                vapid_private_key=vapid_private,
+                vapid_claims={"sub": "mailto:admin@voxly.com"}
+            )
+        except WebPushException as ex:
+            log_error("PyWebPush failed to send notification: %s", ex)
+        except Exception as ex:
+            log_error("Error in pywebpush task: %s", ex)
+
+    for row in rows:
+        sub_json = row["subscription_json"]
+        t = threading.Thread(target=send_push, args=(sub_json,))
+        t.start()
+
+
 __all__ = [
     "BudgetLimit",
     "BudgetStatus",
@@ -231,4 +292,6 @@ __all__ = [
     "format_budget_summary",
     "get_budget_limits",
     "summarize_alerts",
+    "check_and_trigger_budget_alert",
 ]
+

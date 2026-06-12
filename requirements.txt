@@ -11,3 +11,7 @@ groq>=0.4.2
 Flask-Limiter>=3.5.0
 redis>=5.0
 libsql-experimental==0.0.55
+pywebpush>=1.14.0
+flasgger>=0.9.7.1
+requests>=2.31.0
+

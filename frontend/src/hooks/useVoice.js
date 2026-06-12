@@ -1,6 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sendVoiceCommand as apiSendVoiceCommand } from '../api';
+import { sendVoiceCommand as apiSendVoiceCommand, getStoredTokens } from '../api';
 import { mapRecentExpenses } from '../utils';
+
+const speakText = async (text) => {
+  if (!text) return;
+  try {
+    const { accessToken } = getStoredTokens();
+    const headers = { 'Content-Type': 'application/json' };
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    const response = await fetch('/api/voice/tts', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      throw new Error('TTS response not OK');
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    await audio.play();
+  } catch (err) {
+    console.warn('TTS streaming failed, falling back to browser speechSynthesis:', err);
+    if ('speechSynthesis' in window && text.length <= 160) {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    }
+  }
+};
+
 
 export const useVoice = ({
   addToast,
@@ -29,11 +59,8 @@ export const useVoice = ({
 
     if (data.budget_alert) setBudgetAlertOverride(data.budget_alert);
     
-    // Minor Fix: Cancel previous speech to prevent overlapping
-    if (msg && 'speechSynthesis' in window && msg.length <= 160) {
-      window.speechSynthesis.cancel(); 
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
-    }
+    // Speak the response text
+    speakText(msg);
 
     const opts = data.options || data.option_list;
     if ((data.needs_confirmation || data.needsClarification) && Array.isArray(opts) && opts.length > 0) {

@@ -107,6 +107,14 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
     revoked_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_revoked_tokens_jti ON revoked_tokens(jti);
+
+CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    subscription_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
 """
 
 def _current_timestamp() -> str:
@@ -436,9 +444,15 @@ def update_last_logout(user_id: str) -> None:
 
 
 def revoke_token(jti: str) -> None:
-    """Record a JWT ID as revoked."""
+    """Record a JWT ID as revoked in DB and Redis."""
     if not jti:
         return
+    from extensions import redis_client
+    if redis_client:
+        try:
+            redis_client.setex(f"blacklist:{jti}", 3600, "1")
+        except Exception as exc:
+            log_error("Failed to add token to Redis blocklist: %s", exc)
     try:
         with get_db() as conn:
             conn.execute(
@@ -454,6 +468,12 @@ def is_token_revoked(jti: str) -> bool:
     """Return True if the JWT ID has been revoked."""
     if not jti:
         return False
+    from extensions import redis_client
+    if redis_client:
+        try:
+            return redis_client.exists(f"blacklist:{jti}") > 0
+        except Exception as exc:
+            log_error("Failed to check Redis blacklist: %s", exc)
     try:
         with get_db() as conn:
             cur = conn.execute(
@@ -1336,6 +1356,23 @@ def get_user_budget_limits(user_id: str) -> list[dict]:
         log_error("Failed to fetch budget limits for user %s: %s", user_id, exc)
         return []
 
+
+def add_push_subscription(user_id: str, subscription_json: str) -> None:
+    """Add a push subscription for a user."""
+    if not user_id or not subscription_json:
+        return
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO web_push_subscriptions (user_id, subscription_json) VALUES (?, ?)",
+                (user_id, subscription_json)
+            )
+            conn.commit()
+        log_info("Push subscription saved for user %s", user_id)
+    except Exception as exc:
+        log_error("Failed to save push subscription for user %s: %s", user_id, exc)
+
+
 class ExpenseRepository:
     create_user = staticmethod(create_user)
     get_user_by_email_public = staticmethod(get_user_by_email_public)
@@ -1372,3 +1409,5 @@ class ExpenseRepository:
     save_insight = staticmethod(save_insight)
     seed_default_budgets = staticmethod(seed_default_budgets)
     get_user_budget_limits = staticmethod(get_user_budget_limits)
+    add_push_subscription = staticmethod(add_push_subscription)
+

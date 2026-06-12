@@ -90,7 +90,171 @@ const attemptRefresh = async () => {
   return refreshPromise;
 };
 
+// ─── IndexedDB offline requests queue ────────────────────────────────────────
+
+const DB_NAME = 'voxly_offline_api';
+const STORE_NAME = 'offline_requests';
+
+const getIDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    request.onsuccess = (event) => resolve(event.target.result);
+    request.onerror = (event) => reject(event.target.error);
+  });
+};
+
+const saveOfflineRequest = async (path, options) => {
+  const db = await getIDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    store.add({
+      path,
+      method: options.method || 'GET',
+      body: options.body,
+      timestamp: Date.now(),
+    });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = (event) => reject(event.target.error);
+  });
+};
+
+const getOfflineRequests = async () => {
+  const db = await getIDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = (event) => resolve(event.target.result);
+    request.onerror = (event) => reject(event.target.error);
+  });
+};
+
+const clearOfflineRequest = async (id) => {
+  const db = await getIDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    store.delete(id);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = (event) => reject(event.target.error);
+  });
+};
+
+export const syncOfflineTransactions = async () => {
+  const requests = await getOfflineRequests();
+  if (!requests.length) return;
+
+  const payloads = [];
+  const ids = [];
+
+  for (const req of requests) {
+    if (req.path === '/api/add') {
+      try {
+        const payload = JSON.parse(req.body);
+        payloads.push(payload);
+        ids.push(req.id);
+      } catch (e) {
+        console.error('Failed to parse offline request body:', e);
+      }
+    }
+  }
+
+  if (payloads.length > 0) {
+    try {
+      const { accessToken } = getStoredTokens();
+      const headers = { 'Content-Type': 'application/json' };
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+      const response = await fetch(`${API_BASE}/api/expenses/bulk_sync`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ expenses: payloads }),
+      });
+      if (response.ok) {
+        for (const id of ids) {
+          await clearOfflineRequest(id);
+        }
+        window.dispatchEvent(new CustomEvent('offline-sync-complete', {
+          detail: { count: payloads.length }
+        }));
+      }
+    } catch (err) {
+      console.error('Bulk sync request failed:', err);
+    }
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', syncOfflineTransactions);
+}
+
+// ─── Web Push Subscriptions ───────────────────────────────────────────────────
+
+export const subscribeUserToPush = async () => {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const { public_key } = await apiFetch('/api/notifications/vapid_public_key');
+    if (!public_key) {
+      console.warn('VAPID public key not found on server.');
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      return;
+    }
+
+    const padding = '='.repeat((4 - (public_key.length % 4)) % 4);
+    const base64 = (public_key + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: outputArray,
+    });
+
+    await apiFetch('/api/notifications/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscription),
+    });
+    console.log('Push notification subscription successful.');
+  } catch (err) {
+    console.warn('Failed to subscribe user to push notifications:', err);
+  }
+};
+
+
 async function apiFetch(path, options = {}) {
+  // Intercept when offline
+  if (typeof navigator !== 'undefined' && !navigator.onLine && options.method === 'POST' && path === '/api/add') {
+    try {
+      await saveOfflineRequest(path, options);
+      return {
+        message: 'Saved offline. Will sync when connection is restored.',
+        offline: true,
+        success: true,
+      };
+    } catch (err) {
+      console.error('Failed to queue offline request:', err);
+    }
+  }
+
   const {
     timeout = DEFAULT_TIMEOUT,
     skipAuth = false,
