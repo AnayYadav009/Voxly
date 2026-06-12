@@ -42,6 +42,7 @@ import { RecentExpensesTable } from './components/RecentExpensesTable';
 import { AddExpenseForm } from './components/AddExpenseForm';
 import { BudgetTab } from './components/BudgetTab';
 import { SettingsTab } from './components/SettingsTab';
+import CategoryDrilldown from './components/CategoryDrilldown';
 import { useVoice } from './hooks/useVoice';
 
 // ─── Constants & Utilities ───────────────────────────────────────────────────
@@ -844,13 +845,13 @@ const DashboardTab = ({
   );
 };
 
-const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, monthlySummaryData, dark }) => {
+const AnalyticsTab = ({ categorySpending, monthlyTrend, weeklySummaryData, monthlySummaryData, dark, onCategoryClick }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Donut */}
       <div className="card">
         <div className="card-title">Spending by Category</div>
-        <DonutChart data={categorySpending} dark={dark} />
+        <DonutChart data={categorySpending} dark={dark} onCategoryClick={onCategoryClick} />
       </div>
 
       {/* Monthly trend */}
@@ -942,6 +943,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
 
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
   const [budgetAlertOverride, setBudgetAlertOverride] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState(null);
   
   // Fix 3: Memory leak / state updates on unmounted component safety check
   const isMounted = useRef(true);
@@ -1151,6 +1153,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                 weeklySummaryData={weeklySummaryData}
                 monthlySummaryData={monthlySummaryData}
                 dark={dark}
+                onCategoryClick={setSelectedCategory}
               />
             )}
             {tab === 'expenses' && (
@@ -1162,7 +1165,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
               />
             )}
             {tab === 'budget' && (
-              <BudgetTab categoryTotals={categoryTotals} dark={dark} />
+              <BudgetTab categoryTotals={categoryTotals} dark={dark} onCategoryClick={setSelectedCategory} />
             )}
             {tab === 'settings' && (
               <SettingsTab
@@ -1203,6 +1206,14 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
         onConfirm={handleVoiceConfirmSelect}
         onCancel={() => { setVoiceConfirm(null); setVoiceStatus('Cancelled.'); }}
       />
+
+      {/* Category Drill-down Dialog */}
+      {selectedCategory && (
+        <CategoryDrilldown
+          category={selectedCategory}
+          onClose={() => setSelectedCategory(null)}
+        />
+      )}
     </div>
   );
 };

@@ -180,6 +180,65 @@ def api_health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/expenses/by-category")
+def api_expenses_by_category():
+    """Get individual expenses and merchant breakdown for a category and date range."""
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+
+    category = request.args.get("category")
+    if not category:
+        return jsonify({"error": "category is required."}), 400
+
+    from datetime import datetime, timezone
+    from utils.dates import get_local_now
+    now = get_local_now()
+    default_start = now.replace(day=1).strftime("%Y-%m-%d")
+    default_end = now.strftime("%Y-%m-%d")
+
+    start_param = request.args.get("start")
+    end_param = request.args.get("end")
+
+    start_date = default_start
+    if start_param:
+        try:
+            datetime.strptime(start_param, "%Y-%m-%d")
+            start_date = start_param
+        except ValueError:
+            pass
+
+    end_date = default_end
+    if end_param:
+        try:
+            datetime.strptime(end_param, "%Y-%m-%d")
+            end_date = end_param
+        except ValueError:
+            pass
+
+    from database import get_expenses_in_category
+    from merchant_module import analyze_expenses
+
+    try:
+        expenses = get_expenses_in_category(category, start_date, end_date, user_id=user["id"])
+        analysis = analyze_expenses(expenses)
+    except Exception as exc:
+        from logger import log_error
+        log_error("Failed to fetch/analyze expenses by category: %s", exc)
+        return _error("Internal database error.", 500)
+
+    response = {
+        "category": category,
+        "period": {"start": start_date, "end": end_date},
+        "total": analysis["total"],
+        "count": analysis["count"],
+        "expenses": expenses,
+        "merchant_breakdown": analysis["breakdown"],
+        "generated_at": datetime.now(timezone.utc).isoformat()
+    }
+    return jsonify(response)
+
+
 @app.before_request
 def attach_current_user() -> None:
     """Attach current user."""

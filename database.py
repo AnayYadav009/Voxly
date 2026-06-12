@@ -1034,6 +1034,41 @@ def get_all_expenses(
         log_error("Failed to fetch expenses: %s", exc)
         raise
 
+
+def get_expenses_in_category(
+    category: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return all expense rows for `category`, optionally filtered to
+    [start_date, end_date] inclusive (DATE_FORMAT strings), and optionally
+    scoped to user_id. Ordered most-recent first."""
+    try:
+        with get_db() as conn:
+            query_parts = ["SELECT id, amount, category, description, payment_method, date, time FROM expenses"]
+            where_clauses = ["LOWER(category) = ?"]
+            params = [category.lower()]
+
+            if start_date:
+                where_clauses.append("date >= ?")
+                params.append(start_date)
+            if end_date:
+                where_clauses.append("date <= ?")
+                params.append(end_date)
+            if user_id:
+                where_clauses.append("user_id = ?")
+                params.append(user_id)
+
+            sql = f"{' '.join(query_parts)} WHERE {' AND '.join(where_clauses)} ORDER BY date DESC, time DESC, id DESC"
+            cur = conn.execute(sql, tuple(params))
+            rows = cur.fetchall()
+            return [dict(row) for row in rows]
+    except sqlite3.Error as exc:
+        log_error("Failed to fetch expenses in category %s: %s", category, exc)
+        raise
+
+
 def get_user_budgets(user_id: str) -> List[Dict[str, Any]]:
     """Retrieve all active budgets for a given user.
 

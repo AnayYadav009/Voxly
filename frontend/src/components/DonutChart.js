@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatINR, getCatColor } from '../utils';
 
-export const DonutChart = ({ data, dark }) => {
+export const DonutChart = ({ data, dark, onCategoryClick }) => {
   const total = data.reduce((s, d) => s + d.amount, 0) || 1;
   let angle = -90;
   const R = 80, cx = 90, cy = 90, stroke = 28;
@@ -56,15 +56,25 @@ export const DonutChart = ({ data, dark }) => {
         </div>
       </div>
       <div className="donut-legend">
-        {data.slice(0, 6).map((d, i) => (
-          <div key={d.key || i} className="legend-item">
-            <div className="legend-left">
-              <div className="legend-dot" style={{ background: getCatColor(d.category.toLowerCase(), dark) }} />
-              <span className="legend-name">{d.category}</span>
+        {data.slice(0, 6).map((d, i) => {
+          const rawCat = (d.key || d.category || '').toLowerCase();
+          return (
+            <div
+              key={d.key || i}
+              className="legend-item cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 p-1.5 rounded-lg transition-colors flex items-center justify-between"
+              onClick={() => onCategoryClick && onCategoryClick(rawCat)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onCategoryClick && onCategoryClick(rawCat); } }}
+            >
+              <div className="legend-left">
+                <div className="legend-dot" style={{ background: getCatColor(d.category.toLowerCase(), dark) }} />
+                <span className="legend-name">{d.category}</span>
+              </div>
+              <span className="legend-amount">{formatINR(d.amount)}</span>
             </div>
-            <span className="legend-amount">{formatINR(d.amount)}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

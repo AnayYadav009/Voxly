@@ -343,6 +343,12 @@ export const getDailyTotals = (days = 7) =>
   apiFetch(`/api/charts/daily-totals?days=${days}`);
 export const getMonthlyTotals = (months = 6) =>
   apiFetch(`/api/charts/monthly-totals?months=${months}`);
+export const getCategoryExpenses = (category, { start, end } = {}) => {
+  const params = new URLSearchParams({ category });
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  return apiFetch(`/api/expenses/by-category?${params.toString()}`);
+};
 export const getBudgets = () => apiFetch("/api/budgets");
 
 export const setBudget = (payload) =>
