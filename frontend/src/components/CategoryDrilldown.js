@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { getCategoryExpenses } from '../api';
 import { formatINR, titleCase } from '../utils';
@@ -23,7 +23,7 @@ const CategoryDrilldown = ({ category, onClose }) => {
     return `${yyyy}-${mm}-${dd}`;
   };
 
-  const fetchExpenses = async () => {
+  const fetchExpenses = useCallback(async () => {
     if (!category) return;
     const currentRequestId = ++requestRef.current;
     setLoading(true);
@@ -71,14 +71,11 @@ const CategoryDrilldown = ({ category, onClose }) => {
         setLoading(false);
       }
     }
-  };
+  }, [category, period, customStart, customEnd]);
 
   useEffect(() => {
     fetchExpenses();
-    return () => {
-      requestRef.current++;
-    };
-  }, [category, period, customStart, customEnd]);
+  }, [fetchExpenses]);
 
   if (!category) return null;
 
