@@ -14,6 +14,7 @@ import {
   BarChart3,
   Plus,
   Settings,
+  X,
 } from 'lucide-react';
 
 import SchemeToggle, { useColorScheme } from './components/SchemeToggle';
@@ -64,7 +65,7 @@ const useToasts = () => {
 
 const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLogging, scheme, setScheme }) => {
   const [tab, setTab] = useState('dashboard');
-  const [toasts, addToast, removeToast] = useToasts();
+  const [toasts, addToast] = useToasts();
 
   const [summary, setSummary] = useState(null);
   const [recentExpenses, setRecentExpenses] = useState([]);
@@ -72,11 +73,9 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
   const [chartDaily, setChartDaily] = useState([]);
   const [chartMonthly, setChartMonthly] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
 
-  const [dismissedAlerts, setDismissedAlerts] = useState([]);
   const [budgetAlertOverride, setBudgetAlertOverride] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
@@ -115,7 +114,6 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     } finally {
       if (isMounted.current) {
         setLoading(false);
-        setRefreshing(false);
       }
     }
   }, [addToast]);
@@ -123,7 +121,6 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleRefresh = useCallback(() => {
-    setRefreshing(true);
     loadData(true);
   }, [loadData]);
 
@@ -216,9 +213,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     return base;
   }, [summary?.budget_alerts, budgetAlertOverride]);
 
-  const visibleAlerts = rawAlerts.filter((_, i) => !dismissedAlerts.includes(i));
-
-  const dismissAlert = useCallback((i) => setDismissedAlerts(d => [...d, i]), []);
+  const visibleAlerts = rawAlerts;
 
   const loggingEnabled = Boolean(preferences?.log_opt_in);
   const displayName = user?.display_name || user?.email || 'U';
@@ -656,6 +651,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                           {['Date','Time','Amount','Category','Description'].map(h => (
                             <th key={h} className="text-left pb-2 pr-4 font-medium" style={{ color: 'var(--text-2)' }}>{h}</th>
                           ))}
+                          <th className="text-right pb-2 font-medium" style={{ color: 'var(--text-2)' }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -670,9 +666,20 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                               </span>
                             </td>
                             <td className="py-2" style={{ color: 'var(--text-2)' }}>{exp.description || '—'}</td>
+                            <td className="py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteExpense(exp.id)}
+                                className="hover:text-red-500 transition-colors p-1"
+                                style={{ color: 'var(--text-3)' }}
+                                title="Delete expense"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
                           </tr>
                         )) : (
-                          <tr><td colSpan={5} className="py-4 text-center" style={{ color: 'var(--text-2)' }}>No expenses logged yet.</td></tr>
+                          <tr><td colSpan={6} className="py-4 text-center" style={{ color: 'var(--text-2)' }}>No expenses logged yet.</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -685,6 +692,15 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                           <p className="text-xs mt-0.5" style={{ color: 'var(--text-2)' }}>{titleCase(exp.category)} · {exp.date}</p>
                           {exp.description && <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>{exp.description}</p>}
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteExpense(exp.id)}
+                          className="hover:text-red-500 transition-colors p-1 shrink-0"
+                          style={{ color: 'var(--text-3)' }}
+                          title="Delete expense"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     )) : (
                       <p className="text-xs" style={{ color: 'var(--text-2)' }}>No expenses logged yet.</p>
