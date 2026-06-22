@@ -628,3 +628,44 @@ def test_csp_security_headers():
         assert "font-src 'self' https://fonts.gstatic.com" in csp
 
 
+def test_manual_budget_endpoints(temp_db):
+    """Test manual budget endpoints (GET, POST, DELETE /api/budgets)."""
+    uid = _test_user_id(temp_db)
+    headers = _auth_headers(uid)
+    client = app.test_client()
+
+    # 1. POST to set a new budget
+    res = client.post(
+        "/api/budgets",
+        json={"category": "shopping", "limit": 7500, "warn_ratio": 0.85},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    assert res.get_json() == {"success": True}
+
+    # 2. GET to retrieve budgets and verify
+    res = client.get("/api/budgets", headers=headers)
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "shopping" in data
+    assert data["shopping"]["limit"] == 7500.0
+    assert data["shopping"]["warn_ratio"] == 0.85
+
+    # 3. DELETE to remove the budget
+    res = client.delete(
+        "/api/budgets",
+        json={"category": "shopping"},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    assert res.get_json()["success"] is True
+    assert res.get_json()["removed"] is True
+
+    # 4. GET again to verify removal
+    res = client.get("/api/budgets", headers=headers)
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "shopping" not in data
+
+
+

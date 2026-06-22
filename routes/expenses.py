@@ -21,14 +21,14 @@ from database import (
     get_cached_insight,
     save_insight,
 )
-from budget_module import set_budget_limit, get_budget_limits, check_and_trigger_budget_alert
+from budget_module import set_budget_limit, get_budget_limits, remove_budget_limit, check_and_trigger_budget_alert
 from visual_module import get_monthly_totals_by_month
 from logger import log_error, log_info
 from insight_module import generate_insight
 
 expenses_bp = Blueprint("expenses", __name__, url_prefix="/api")
 
-@expenses_bp.route("/budgets", methods=["GET", "POST"])
+@expenses_bp.route("/budgets", methods=["GET", "POST", "DELETE"])
 def api_budgets():
     """Handle API budgets."""
     user = _require_authenticated_user()
@@ -39,10 +39,23 @@ def api_budgets():
         data = request.json or {}
         category = data.get("category")
         limit = data.get("limit")
+        warn_ratio = data.get("warn_ratio")
         try:
             limit_val = float(limit)
-            set_budget_limit(category, limit_val, user_id=user["id"])
+            warn_val = float(warn_ratio) if warn_ratio is not None else None
+            set_budget_limit(category, limit_val, warn_at=warn_val, user_id=user["id"])
             return jsonify({"success": True})
+        except Exception as e:
+            return _error(str(e), 400)
+
+    if request.method == "DELETE":
+        data = request.json or {}
+        category = data.get("category")
+        if not category:
+            return _error("Category is required.", 400)
+        try:
+            removed = remove_budget_limit(category, user_id=user["id"])
+            return jsonify({"success": True, "removed": removed})
         except Exception as e:
             return _error(str(e), 400)
 
@@ -70,6 +83,7 @@ def api_summary():
         monthly_summary=context["monthly_summary"],
         category_totals=category_totals,
         budget_alerts=context["budget_alerts"],
+        budget_status=context.get("budget_status", []),
     )
 
 

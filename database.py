@@ -71,18 +71,6 @@ CREATE TABLE IF NOT EXISTS user_budgets (
 
 CREATE INDEX IF NOT EXISTS idx_user_budgets_user ON user_budgets(user_id);
 
-CREATE TABLE IF NOT EXISTS budgets (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id   TEXT NOT NULL,
-    category  TEXT NOT NULL,
-    limit_amt REAL NOT NULL,
-    warn_at   REAL NOT NULL DEFAULT 0.8,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(user_id, category),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-);
-CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(user_id);
 
 CREATE TABLE IF NOT EXISTS user_states (
     user_id TEXT PRIMARY KEY,
@@ -1214,59 +1202,6 @@ def remove_user_budget(user_id: str, category: str) -> bool:
         log_error("Failed to remove user budget: %s", exc)
         raise
 
-def upsert_budget(user_id: str, category: str, limit_amt: float, warn_at: float = 0.8) -> None:
-    """Upsert user budget into the budgets table."""
-    if not user_id or not category:
-        return
-    try:
-        with get_db() as conn:
-            conn.execute(
-                """
-                INSERT INTO budgets (user_id, category, limit_amt, warn_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(user_id, category) DO UPDATE SET
-                    limit_amt=excluded.limit_amt,
-                    warn_at=excluded.warn_at,
-                    updated_at=excluded.updated_at
-                """,
-                (user_id, category.lower(), limit_amt, warn_at, _current_timestamp())
-            )
-            conn.commit()
-    except sqlite3.Error as exc:
-        log_error("Failed to upsert budget: %s", exc)
-        raise
-
-def delete_budget(user_id: str, category: str) -> bool:
-    """Delete budget from the budgets table."""
-    if not user_id or not category:
-        return False
-    try:
-        with get_db() as conn:
-            cur = conn.execute(
-                "DELETE FROM budgets WHERE user_id = ? AND category = ?",
-                (user_id, category.lower())
-            )
-            conn.commit()
-            return cur.rowcount > 0
-    except sqlite3.Error as exc:
-        log_error("Failed to delete budget: %s", exc)
-        raise
-
-def get_budgets_for_user(user_id: str) -> List[Dict[str, Any]]:
-    """Get all budgets for a user from the budgets table."""
-    if not user_id:
-        return []
-    try:
-        with get_db() as conn:
-            cur = conn.execute(
-                "SELECT category, limit_amt, warn_at FROM budgets WHERE user_id = ?",
-                (user_id,)
-            )
-            return [dict(row) for row in cur.fetchall()]
-    except sqlite3.Error as exc:
-        log_error("Failed to fetch budgets: %s", exc)
-        raise
-
 def get_last_command(user_id: str) -> Optional[Dict[str, Any]]:
     """Get last command."""
     if not user_id:
@@ -1435,9 +1370,6 @@ class ExpenseRepository:
     get_dashboard_snapshot = staticmethod(get_dashboard_snapshot)
     set_user_budget = staticmethod(set_user_budget)
     remove_user_budget = staticmethod(remove_user_budget)
-    upsert_budget = staticmethod(upsert_budget)
-    delete_budget = staticmethod(delete_budget)
-    get_budgets_for_user = staticmethod(get_budgets_for_user)
     get_last_command = staticmethod(get_last_command)
     set_last_command = staticmethod(set_last_command)
     get_cached_insight = staticmethod(get_cached_insight)

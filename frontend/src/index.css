@@ -2,26 +2,355 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-	body {
-		@apply bg-brand-50 text-slate-900 font-['Inter','Segoe_UI',system-ui,-apple-system,sans-serif] antialiased;
-	}
+/* ─── Scheme definitions ─────────────────────────────────────────────────── */
 
-	::selection {
-		@apply bg-blue-200 text-blue-900;
-	}
+/* Midnight blue (default) */
+[data-scheme="midnight"], :root {
+  --bg:             #0f0f1a;
+  --bg-card:        #1a1a2e;
+  --bg-surface:     #16213e;
+  --accent:         #60a5fa;
+  --accent-hover:   #3b82f6;
+  --accent-muted:   rgba(96, 165, 250, 0.12);
+  --accent-border:  rgba(96, 165, 250, 0.25);
+  --text-1:         #f1f5f9;
+  --text-2:         #94a3b8;
+  --text-3:         #475569;
+  --border:         rgba(255, 255, 255, 0.08);
+  --border-hover:   rgba(255, 255, 255, 0.14);
+  --success:        #34d399;
+  --warning:        #fbbf24;
+  --danger:         #f87171;
+  --mic-bg:         #2563eb;
+  --chip-bg:        rgba(96, 165, 250, 0.10);
+  --chip-text:      #93c5fd;
+  --chip-border:    rgba(96, 165, 250, 0.22);
+  --bar-ok:         #34d399;
+  --bar-warn:       #fbbf24;
+  --bar-over:       #f87171;
+  --top-accent-1:   #60a5fa;
+  --top-accent-2:   #34d399;
+  --top-accent-3:   #fbbf24;
 }
 
+[data-scheme="sage"] {
+  --bg:             #f7f7f5;
+  --bg-card:        #ffffff;
+  --bg-surface:     #eeecea;
+  --accent:         #4a5c4e;
+  --accent-hover:   #3d4f41;
+  --accent-muted:   #e6ede7;
+  --accent-border:  rgba(74, 92, 78, 0.25);
+  --text-1:         #1c2120;
+  --text-2:         #6b7569;
+  --text-3:         #9ca89a;
+  --border:         rgba(0, 0, 0, 0.08);
+  --border-hover:   rgba(0, 0, 0, 0.14);
+  --success:        #3b6d11;
+  --warning:        #854f0b;
+  --danger:         #a32d2d;
+  --mic-bg:         #4a5c4e;
+  --chip-bg:        #e6ede7;
+  --chip-text:      #3d4f41;
+  --chip-border:    rgba(74, 92, 78, 0.25);
+  --bar-ok:         #3b6d11;
+  --bar-warn:       #854f0b;
+  --bar-over:       #a32d2d;
+  --top-accent-1:   #4a5c4e;
+  --top-accent-2:   #3b6d11;
+  --top-accent-3:   #854f0b;
+}
+
+[data-scheme="aurora"] {
+  --bg:             #0d1117;
+  --bg-card:        #161b22;
+  --bg-surface:     #1c2128;
+  --accent:         #2dd4bf;
+  --accent-hover:   #0d9488;
+  --accent-muted:   rgba(45, 212, 191, 0.10);
+  --accent-border:  rgba(45, 212, 191, 0.22);
+  --text-1:         #e6edf3;
+  --text-2:         #8b949e;
+  --text-3:         #4a5568;
+  --border:         rgba(255, 255, 255, 0.07);
+  --border-hover:   rgba(255, 255, 255, 0.13);
+  --success:        #2dd4bf;
+  --warning:        #f59e0b;
+  --danger:         #f87171;
+  --mic-bg:         #0d9488;
+  --chip-bg:        rgba(45, 212, 191, 0.10);
+  --chip-text:      #5eead4;
+  --chip-border:    rgba(45, 212, 191, 0.20);
+  --bar-ok:         #2dd4bf;
+  --bar-warn:       #f59e0b;
+  --bar-over:       #f87171;
+  --top-accent-1:   #2dd4bf;
+  --top-accent-2:   #a78bfa;
+  --top-accent-3:   #f59e0b;
+}
+
+[data-scheme="ember"] {
+  --bg:             #faf8f5;
+  --bg-card:        #ffffff;
+  --bg-surface:     #f5f0e8;
+  --accent:         #c2773a;
+  --accent-hover:   #b45309;
+  --accent-muted:   #fef3e8;
+  --accent-border:  rgba(194, 119, 58, 0.25);
+  --text-1:         #1c1410;
+  --text-2:         #78614e;
+  --text-3:         #a8937e;
+  --border:         rgba(0, 0, 0, 0.07);
+  --border-hover:   rgba(0, 0, 0, 0.13);
+  --success:        #3b6d11;
+  --warning:        #854f0b;
+  --danger:         #a32d2d;
+  --mic-bg:         #c2773a;
+  --chip-bg:        #fef3e8;
+  --chip-text:      #9a4f20;
+  --chip-border:    rgba(194, 119, 58, 0.25);
+  --bar-ok:         #3b6d11;
+  --bar-warn:       #854f0b;
+  --bar-over:       #a32d2d;
+  --top-accent-1:   #c2773a;
+  --top-accent-2:   #3b6d11;
+  --top-accent-3:   #d97706;
+}
+
+[data-scheme="violet"] {
+  --bg:             #111114;
+  --bg-card:        #18181f;
+  --bg-surface:     #1e1e2a;
+  --accent:         #a78bfa;
+  --accent-hover:   #7c3aed;
+  --accent-muted:   rgba(167, 139, 250, 0.10);
+  --accent-border:  rgba(167, 139, 250, 0.22);
+  --text-1:         #f0eeff;
+  --text-2:         #9d94bc;
+  --text-3:         #5a5370;
+  --border:         rgba(255, 255, 255, 0.07);
+  --border-hover:   rgba(255, 255, 255, 0.13);
+  --success:        #34d399;
+  --warning:        #fbbf24;
+  --danger:         #f87171;
+  --mic-bg:         #7c3aed;
+  --chip-bg:        rgba(167, 139, 250, 0.10);
+  --chip-text:      #c4b5fd;
+  --chip-border:    rgba(167, 139, 250, 0.22);
+  --bar-ok:         #34d399;
+  --bar-warn:       #fbbf24;
+  --bar-over:       #f87171;
+  --top-accent-1:   #a78bfa;
+  --top-accent-2:   #38bdf8;
+  --top-accent-3:   #fbbf24;
+}
+
+/* ─── Global base styles ────────────────────────────────────────────────── */
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text-1);
+    font-family: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.25s ease, color 0.2s ease;
+  }
+
+  ::selection {
+    background: var(--accent-muted);
+    color: var(--accent);
+  }
+}
+
+/* ─── Component classes (Tailwind @layer components) ───────────────────── */
+
 @layer components {
-	.app-shell {
-		@apply min-h-screen bg-gradient-to-br from-blue-50 to-blue-100;
-	}
 
-	.app-card {
-		@apply bg-white rounded-2xl shadow-lg border border-blue-100;
-	}
+  /* Cards */
+  .vx-card {
+    @apply rounded-2xl border;
+    background: var(--bg-card);
+    border-color: var(--border);
+    transition: border-color 0.15s;
+  }
+  .vx-card:hover { border-color: var(--border-hover); }
 
-	.app-section {
-		@apply bg-white rounded-2xl shadow-lg border border-blue-100 p-6;
-	}
+  .vx-surface {
+    @apply rounded-xl border;
+    background: var(--bg-surface);
+    border-color: var(--border);
+  }
+
+  /* Stat cards */
+  .vx-stat {
+    @apply vx-surface p-3 flex flex-col gap-1 relative overflow-hidden;
+  }
+  .vx-stat::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--stat-accent, var(--accent));
+  }
+
+  /* Typography */
+  .vx-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-2);
+  }
+  .vx-value {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-1);
+    line-height: 1.1;
+  }
+  .vx-muted { color: var(--text-2); font-size: 11px; }
+
+  /* Buttons */
+  .vx-btn-primary {
+    @apply rounded-xl px-4 py-2 text-sm font-medium transition-all;
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .vx-btn-primary:hover { background: var(--accent-hover); }
+
+  .vx-btn-ghost {
+    @apply rounded-xl px-3 py-2 text-sm font-medium border transition-all;
+    color: var(--text-2);
+    border-color: var(--border);
+    background: transparent;
+  }
+  .vx-btn-ghost:hover {
+    color: var(--text-1);
+    border-color: var(--border-hover);
+    background: var(--bg-surface);
+  }
+
+  /* Command chips */
+  .vx-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border text-xs px-3 py-1.5 transition-all cursor-pointer;
+    background: var(--chip-bg);
+    color: var(--chip-text);
+    border-color: var(--chip-border);
+  }
+  .vx-chip:hover {
+    background: var(--accent-muted);
+    border-color: var(--accent-border);
+    color: var(--accent);
+  }
+
+  /* Budget progress bar */
+  .vx-bar-track {
+    @apply w-full rounded-full overflow-hidden;
+    height: 3px;
+    background: var(--border);
+  }
+  .vx-bar-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.5s ease;
+  }
+
+  /* Nav items */
+  .vx-nav-item {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all cursor-pointer;
+    color: var(--text-2);
+  }
+  .vx-nav-item:hover {
+    color: var(--text-1);
+    background: var(--bg-surface);
+  }
+  .vx-nav-item.active {
+    color: var(--accent);
+    background: var(--accent-muted);
+    font-weight: 500;
+  }
+
+  /* Badge */
+  .vx-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border;
+    background: var(--accent-muted);
+    color: var(--accent);
+    border-color: var(--accent-border);
+  }
+
+  /* Mic button */
+  .vx-mic {
+    @apply rounded-full flex items-center justify-center transition-transform duration-150;
+    background: var(--mic-bg);
+    width: 80px;
+    height: 80px;
+  }
+  .vx-mic:hover:not(:disabled) { transform: scale(1.04); }
+  .vx-mic:active:not(:disabled) { transform: scale(0.97); }
+  .vx-mic:disabled { opacity: 0.5; cursor: not-allowed; }
+  .vx-mic.recording { background: var(--danger) !important; }
+
+  /* Pulse rings */
+  .vx-ring {
+    @apply absolute rounded-full pointer-events-none;
+    border: 1.5px solid var(--danger);
+    opacity: 0;
+  }
+  .vx-ring.active     { animation: vx-pulse 1.4s ease-out infinite; }
+  .vx-ring-2.active   { animation: vx-pulse 1.4s ease-out 0.20s infinite; }
+  .vx-ring-3.active   { animation: vx-pulse 1.4s ease-out 0.40s infinite; }
+
+  @keyframes vx-pulse {
+    0%   { transform: scale(0.88); opacity: 0.7; }
+    100% { transform: scale(1.15); opacity: 0; }
+  }
+
+  /* Equalizer bars */
+  .vx-eq-bar {
+    width: 3px;
+    border-radius: 2px;
+    background: var(--danger);
+  }
+  .vx-eq-bar:nth-child(1) { animation: vx-eq1 0.80s ease-in-out infinite; }
+  .vx-eq-bar:nth-child(2) { animation: vx-eq2 0.70s ease-in-out 0.10s infinite; }
+  .vx-eq-bar:nth-child(3) { animation: vx-eq3 0.90s ease-in-out 0.05s infinite; }
+  .vx-eq-bar:nth-child(4) { animation: vx-eq4 0.75s ease-in-out 0.15s infinite; }
+  .vx-eq-bar:nth-child(5) { animation: vx-eq5 0.85s ease-in-out 0.08s infinite; }
+
+  @keyframes vx-eq1 { 0%,100%{height:4px}  50%{height:18px} }
+  @keyframes vx-eq2 { 0%,100%{height:10px} 40%{height:22px} }
+  @keyframes vx-eq3 { 0%,100%{height:16px} 60%{height:6px}  }
+  @keyframes vx-eq4 { 0%,100%{height:6px}  30%{height:20px} }
+  @keyframes vx-eq5 { 0%,100%{height:12px} 70%{height:4px}  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vx-ring, .vx-eq-bar { animation: none !important; }
+  }
+
+  /* Scheme toggle dot buttons */
+  .vx-scheme-btn {
+    @apply w-5 h-5 rounded-full border-2 transition-transform cursor-pointer;
+    border-color: transparent;
+  }
+  .vx-scheme-btn.selected {
+    border-color: var(--text-1);
+    transform: scale(1.2);
+  }
+
+  /* Divider */
+  .vx-divider {
+    border: none;
+    border-top: 0.5px solid var(--border);
+    margin: 8px 0;
+  }
+
+  /* Toast */
+  .vx-toast {
+    @apply rounded-xl border px-4 py-3 text-sm;
+  }
+  .vx-toast.success { background: var(--accent-muted); border-color: var(--accent-border); color: var(--accent); }
+  .vx-toast.error   { background: rgba(248,113,113,0.08); border-color: rgba(248,113,113,0.25); color: var(--danger); }
+  .vx-toast.info    { background: var(--bg-surface); border-color: var(--border); color: var(--text-1); }
 }

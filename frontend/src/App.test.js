@@ -23,6 +23,7 @@ jest.mock('lucide-react', () => {
     BarChart3: mockIcon('BarChart3'),
     Receipt: mockIcon('Receipt'),
     PiggyBank: mockIcon('PiggyBank'),
+    PieChart: mockIcon('PieChart'),
     Plus: mockIcon('Plus'),
     Sun: mockIcon('Sun'),
     Moon: mockIcon('Moon'),

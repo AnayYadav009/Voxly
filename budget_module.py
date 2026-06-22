@@ -11,9 +11,9 @@ from config import DEFAULT_BUDGET_WARN_THRESHOLD
 
 from database import (
     get_monthly_totals_by_category,
-    get_budgets_for_user,
-    upsert_budget,
-    delete_budget,
+    get_user_budget_limits,
+    set_user_budget,
+    remove_user_budget,
 )
 from logger import log_error, log_info
 
@@ -49,10 +49,10 @@ def get_budget_limits(user_id: str) -> Dict[str, BudgetLimit]:
         raise ValueError("user_id is required")
 
     budgets: Dict[str, BudgetLimit] = {}
-    db_budgets = get_budgets_for_user(user_id)
+    db_budgets = get_user_budget_limits(user_id)
     for row in db_budgets:
         category = row["category"].lower()
-        limit = float(row["limit_amt"])
+        limit = float(row["monthly_limit"])
         if limit <= 0:
             continue
         warn_ratio = float(row["warn_at"])
@@ -75,7 +75,7 @@ def set_budget_limit(category: str, limit: float, warn_at: Optional[float] = Non
         warn_at = DEFAULT_BUDGET_WARN_THRESHOLD
 
     try:
-        upsert_budget(user_id, category_key, float(limit), float(warn_at))
+        set_user_budget(user_id, category_key, float(limit), float(warn_at))
         log_info("Set budget for %s (user %s): limit=%s warn_at=%s", category_key, user_id, limit, warn_at)
     except Exception as exc:
         log_error("Failed to persist budget config: %s", exc)
@@ -91,7 +91,7 @@ def remove_budget_limit(category: str, user_id: Optional[str] = None) -> bool:
         raise ValueError("category is required")
 
     try:
-        removed = delete_budget(user_id, category_key)
+        removed = remove_user_budget(user_id, category_key)
         if removed:
             log_info("Removed budget for %s (user %s)", category_key, user_id)
         return removed
@@ -148,24 +148,10 @@ def evaluate_monthly_budgets(
     year = year or now.year
     month = month or now.month
 
-    # Per-user DB budgets take precedence over the global budgets table
-    if user_id:
-        from database import get_user_budget_limits   # avoid circular import at module level
-        db_rows = get_user_budget_limits(user_id)
-        if db_rows:
-            limits = {
-                row["category"].lower(): BudgetLimit(
-                    category=row["category"].lower(),
-                    limit=float(row["monthly_limit"]),
-                    warn_ratio=float(row["warn_at"]),
-                )
-                for row in db_rows
-            }
-        else:
-            limits = get_budget_limits(user_id)   # legacy budgets table fallback
-    else:
+    if not user_id:
         return []
 
+    limits = get_budget_limits(user_id)
     if not limits:
         return []
 

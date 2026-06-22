@@ -358,6 +358,13 @@ export const setBudget = (payload) =>
     body: JSON.stringify(payload),
   });
 
+export const deleteBudget = (category) =>
+  apiFetch("/api/budgets", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category }),
+  });
+
 export const addExpense = (payload) =>
   apiFetch("/api/add", {
     method: "POST",
