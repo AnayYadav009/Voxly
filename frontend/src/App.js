@@ -282,11 +282,6 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
             ))}
           </nav>
 
-          <div className="px-4 py-3 border-t flex flex-col gap-2" style={{ borderColor: 'var(--border)' }}>
-            <span className="vx-label">Theme</span>
-            <SchemeToggle scheme={scheme} setScheme={setScheme} />
-          </div>
-
           <div className="px-4 py-3 border-t flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
@@ -327,7 +322,6 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="lg:hidden"><SchemeToggle scheme={scheme} setScheme={setScheme} /></div>
                 <button type="button" className="vx-btn-ghost text-xs" onClick={onLogout}>Sign out</button>
               </div>
             </div>
@@ -722,6 +716,15 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
 
             {tab === 'settings' && (
               <div className="space-y-4">
+                {/* Theme selector */}
+                <div className="vx-card px-5 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>Color Theme</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-2)' }}>Choose your workspace theme</p>
+                  </div>
+                  <SchemeToggle scheme={scheme} setScheme={setScheme} />
+                </div>
+
                 {/* Voice logging preference */}
                 <div className="vx-card px-5 py-4 flex items-center justify-between">
                   <div>
