@@ -353,4 +353,28 @@
   .vx-toast.success { background: var(--accent-muted); border-color: var(--accent-border); color: var(--accent); }
   .vx-toast.error   { background: rgba(248,113,113,0.08); border-color: rgba(248,113,113,0.25); color: var(--danger); }
   .vx-toast.info    { background: var(--bg-surface); border-color: var(--border); color: var(--text-1); }
+
+  /* Bottom Nav (Mobile/Tablet Only) */
+  .bottom-nav {
+    @apply fixed bottom-0 left-0 right-0 z-20 border-t lg:hidden;
+    background: var(--bg-card);
+    border-color: var(--border);
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  .bottom-nav-inner {
+    @apply flex justify-around items-center;
+  }
+  .bottom-tab {
+    @apply flex flex-col items-center gap-1 px-3 py-1 text-[10px] transition-colors cursor-pointer;
+    color: var(--text-2);
+    background: none;
+    border: none;
+  }
+  .bottom-tab:hover {
+    color: var(--text-1);
+  }
+  .bottom-tab.active {
+    color: var(--accent);
+    font-weight: 500;
+  }
 }

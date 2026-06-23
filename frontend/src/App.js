@@ -306,7 +306,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
 
         {/* Main content */}
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6 space-y-6">
+          <div className="max-w-5xl mx-auto px-4 pt-6 pb-20 lg:pb-6 sm:px-6 space-y-6">
 
             {/* Top bar */}
             <div className="flex items-center justify-between">
