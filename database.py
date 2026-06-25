@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+from threading import local as _thread_local
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
@@ -13,6 +14,10 @@ _local = threading.local()
 
 from config import DB_NAME, DATE_FORMAT
 from logger import log_error, log_info
+
+# Thread-local connection cache — one persistent connection per Gunicorn worker
+# thread. Avoids reopening SQLite on every request while remaining thread-safe.
+_conn_local = _thread_local()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS expenses (
@@ -103,6 +108,11 @@ CREATE TABLE IF NOT EXISTS web_push_subscriptions (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+-- Performance indexes: date-only and category-only filters used in summary
+-- and visual_module queries that don't always scope by user_id.
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
 """
 
 def _current_timestamp() -> str:
@@ -171,11 +181,25 @@ class DictConnection:
         return False
 
 def create_connection(db_name: str = DB_NAME):
+    """Return a per-thread cached SQLite connection with WAL mode enabled.
+
+    WAL (Write-Ahead Logging) allows concurrent readers to proceed without
+    blocking writers, which is critical under Gunicorn's multi-worker/
+    multi-thread model. A new connection is created only on the first call
+    from a given thread; subsequent calls reuse it.
+
+    Tests monkeypatch this function to inject an in-memory connection, so
+    the caching layer is bypassed automatically during the test suite.
     """
-    Returns a DBAPI-2 connection.
-    • Render / production  → Turso via libsql_experimental (TURSO_URL + TURSO_TOKEN set)
-    • Local dev            → local SQLite file fallback (no env vars)
-    """
+    cached = getattr(_conn_local, "conn", None)
+    if cached is not None:
+        # Verify the connection is still usable (handles file-rotation edge cases)
+        try:
+            cached.execute("SELECT 1")
+            return cached
+        except Exception:
+            _conn_local.conn = None
+
     if _USE_TURSO:
         try:
             import libsql_experimental as libsql
@@ -185,10 +209,19 @@ def create_connection(db_name: str = DB_NAME):
                 "installed. Add it to requirements.txt."
             ) from exc
         conn = libsql.connect(_TURSO_URL, auth_token=_TURSO_TOKEN)
-        return DictConnection(conn)
+        dict_conn = DictConnection(conn)
+        _conn_local.conn = dict_conn
+        return dict_conn
     else:
-        conn = sqlite3.connect(db_name)
+        conn = sqlite3.connect(db_name, check_same_thread=False)
         conn.row_factory = _row_factory
+        # Enable WAL — dramatically improves concurrent read performance
+        conn.execute("PRAGMA journal_mode=WAL")
+        # NORMAL is safe with WAL and avoids the full fsync on every write
+        conn.execute("PRAGMA synchronous=NORMAL")
+        # Keep the page cache warm across requests (8 MB)
+        conn.execute("PRAGMA cache_size=-8000")
+        _conn_local.conn = conn
         return conn
 
 @contextmanager
@@ -281,6 +314,16 @@ def create_table() -> None:
             conn.execute(stmt)
         conn.commit()
     log_info("Database schema ensured.")
+
+
+_skip_auto = os.environ.get("VOXLY_SKIP_AUTOCREATE", "false").lower() in {"1", "true", "yes"}
+_running_pytest = any(k.startswith("PYTEST") for k in os.environ.keys())
+
+if not _skip_auto and not _running_pytest:
+    try:
+        create_table()
+    except Exception as exc:
+        log_error("Automatic schema creation failed: %s", exc)
 
 
 # Automatically ensure schema on import in normal runs.

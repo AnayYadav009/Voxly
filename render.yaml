@@ -19,5 +19,5 @@ services:
         sync: false
       - key: VOXLY_JWT_SECRET
         sync: false
-      - key: CORS_ORIGINS
+      - key: VOXLY_ALLOWED_ORIGINS
         sync: false

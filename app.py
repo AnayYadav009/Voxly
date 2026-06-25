@@ -28,10 +28,12 @@ from database import (
     purge_expired_revocations,
 )
 from extensions import limiter as _limiter
+from logger import log_error
 
 from flasgger import Swagger
 
 limiter: Limiter = _limiter
+from voice_module import parse_expense  # eager import — avoids per-worker cold start
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["SWAGGER"] = {
@@ -223,7 +225,6 @@ def api_expenses_by_category():
         expenses = get_expenses_in_category(category, start_date, end_date, user_id=user["id"])
         analysis = analyze_expenses(expenses)
     except Exception as exc:
-        from logger import log_error
         log_error("Failed to fetch/analyze expenses by category: %s", exc)
         return _error("Internal database error.", 500)
 
@@ -237,6 +238,19 @@ def api_expenses_by_category():
         "generated_at": datetime.now(timezone.utc).isoformat()
     }
     return jsonify(response)
+
+
+import time as _time  # stdlib, no new dependency
+
+@app.before_request
+def _start_timer() -> None:
+    g.start_time = _time.perf_counter()
+
+@app.after_request
+def _add_timing_header(response):
+    duration_ms = (_time.perf_counter() - g.get("start_time", _time.perf_counter())) * 1000
+    response.headers["X-Response-Time-Ms"] = f"{duration_ms:.1f}"
+    return response
 
 
 @app.before_request
@@ -313,6 +327,23 @@ def serve_react_app(path: str):
     )
 
 
+@app.route("/api/summary")
+def api_summary():
+    user = _require_authenticated_user()
+    if not user:
+        return _unauthorized_response()
+    context = _build_dashboard_context(user_id=user["id"])
+    return jsonify(
+        total_today=context["total_today"],
+        monthly_total=context["monthly_total"],
+        weekly_summary=context["weekly_summary"],
+        monthly_summary=context["monthly_summary"],
+        category_totals=context["category_totals"],
+        budget_alerts=context["budget_alerts"],
+        chart_series=context["chart_series"],
+    )
+
+
 from routes.auth import auth_bp
 from routes.expenses import expenses_bp
 from routes.charts import charts_bp
@@ -322,6 +353,63 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(expenses_bp)
 app.register_blueprint(charts_bp)
 app.register_blueprint(voice_bp)
+
+
+# ---------------------------------------------------------------------------
+# Groq / external-LLM safety wrapper
+# ---------------------------------------------------------------------------
+# Import httpx only if Groq integration is active, to avoid adding startup
+# overhead when it isn't used.
+def _call_groq_with_fallback(
+    text: str,
+    *,
+    groq_api_key: Optional[str] = None,
+    timeout: float = 2.5,
+):
+    """Call the Groq API with a hard timeout; fall back to rule-based parsing.
+
+    If GROQ_API_KEY is not set or the call exceeds `timeout` seconds, the
+    function returns the result of the local `parse_expense` instead. This
+    guarantees the endpoint never hangs waiting for an external service.
+
+    Usage (when wiring Groq into api_voice_command):
+        parsed = _call_groq_with_fallback(command_text, groq_api_key=os.getenv("GROQ_API_KEY"))
+    """
+    key = groq_api_key or os.environ.get("GROQ_API_KEY")
+    if not key:
+        return parse_expense(text)
+
+    try:
+        import httpx
+        response = httpx.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "llama3-8b-8192",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Extract expense information from the user's command. "
+                            "Return JSON with keys: action, amount, category, date, description."
+                        ),
+                    },
+                    {"role": "user", "content": text},
+                ],
+                "max_tokens": 200,
+                "temperature": 0,
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        # TODO: parse response.json() into the same shape as parse_expense() output
+        return parse_expense(text)  # placeholder until Groq response parsing is implemented
+    except Exception as exc:
+        log_error("Groq call failed (falling back to rule-based): %s", exc)
+        return parse_expense(text)
 
 
 if __name__ == "__main__":

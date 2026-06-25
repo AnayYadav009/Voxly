@@ -49,14 +49,15 @@ The Python backend is deployed as a Web Service on Render using the included `re
 3. Render will automatically detect the `render.yaml` file in the root directory (make sure it's committed to the repository).
 4. **Environment Variables**: Navigate to the Environment tab of your backend service on Render and add the following variables:
 
-   | Variable Name           | Description                           | Example                             |
-   | ----------------------- | ------------------------------------- | ----------------------------------- |
-   | `TURSO_URL`             | The Database URL from Turso.          | `libsql://voxly-db-user.turso.io`   |
-   | `TURSO_TOKEN`           | The Database Auth Token from Turso.   | `eyJhb...`                          |
-   | `VOXLY_JWT_SECRET`      | Secret key for JWT authentication.    | Generate via `openssl rand -hex 32` |
-   | `GROQ_API_KEY`          | Your Groq API key for NLP / insights. | `gsk_...`                           |
-   | `VOXLY_ALLOWED_ORIGINS` | The URL of your Vercel frontend.      | `https://voxly.vercel.app`          |
-   | `FLASK_ENV`             | Sets the Flask environment.           | `production`                        |
+   | Variable Name           | Description                                                                 | Example                             |
+   | ----------------------- | --------------------------------------------------------------------------- | ----------------------------------- |
+   | `TURSO_URL`             | The Database URL from Turso.                                                | `libsql://voxly-db-user.turso.io`   |
+   | `TURSO_TOKEN`           | The Database Auth Token from Turso.                                         | `eyJhb...`                          |
+   | `VOXLY_JWT_SECRET`      | Secret key for JWT authentication.                                          | Generate via `openssl rand -hex 32` |
+   | `GROQ_API_KEY`          | (Optional) Your Groq API key for NLP / insights (falls back to rule-based). | `gsk_...`                           |
+   | `VOXLY_ALLOWED_ORIGINS` | Comma-separated allowed frontend origins.                                   | `https://voxly.vercel.app`          |
+   | `VOXLY_SESSION_SECRET`  | (Optional) Secret key for Flask sessions.                                   | Generate via `openssl rand -hex 32` |
+   | `FLASK_ENV`             | Sets the Flask environment.                                                 | `production`                        |
 
 5. Deploy the application. Once complete, copy the backend URL (e.g., `https://voxly-backend.onrender.com`).
 

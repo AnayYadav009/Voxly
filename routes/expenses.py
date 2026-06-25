@@ -64,27 +64,7 @@ def api_budgets():
     return jsonify(data)
 
 
-@expenses_bp.route("/summary")
-def api_summary():
-    """Handle API summary."""
-    user = _require_authenticated_user()
-    if not user:
-        return _unauthorized_response()
-    context = _build_dashboard_context(user_id=user["id"])
-    raw_totals = context["category_totals"]
-    category_totals = [
-        {"category": cat, "total": total}
-        for cat, total in raw_totals
-    ]
-    return jsonify(
-        total_today=context["total_today"],
-        monthly_total=context["monthly_total"],
-        weekly_summary=context["weekly_summary"],
-        monthly_summary=context["monthly_summary"],
-        category_totals=category_totals,
-        budget_alerts=context["budget_alerts"],
-        budget_status=context.get("budget_status", []),
-    )
+
 
 
 @expenses_bp.route("/recent")
