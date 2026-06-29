@@ -719,6 +719,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                 dark={false}
                 onCategoryClick={setSelectedCategory}
                 onRefresh={handleRefresh}
+                addToast={addToast}
               />
             )}
 

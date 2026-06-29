@@ -4,10 +4,10 @@ import { getBudgets, setBudget, deleteBudget } from '../api';
 
 const CATEGORIES = [
   'food', 'transport', 'entertainment', 'shopping', 'utilities', 'health',
-  'education', 'rent', 'savings', 'personal', 'gifts', 'charity', 'insurance', 'fees', 'uncategorized'
+  'education', 'rent', 'savings', 'personal', 'gifts', 'charity', 'insurance', 'fees', 'other', 'uncategorized'
 ];
 
-export const BudgetTab = ({ categoryTotals, budgetStatuses, dark, onCategoryClick, onRefresh }) => {
+export const BudgetTab = ({ categoryTotals, budgetStatuses, dark, onCategoryClick, onRefresh, addToast }) => {
   const [budgetsConfig, setBudgetsConfig] = useState({});
   const [selectedCat, setSelectedCat] = useState('food');
   const [limitInput, setLimitInput] = useState('');
@@ -100,10 +100,12 @@ export const BudgetTab = ({ categoryTotals, budgetStatuses, dark, onCategoryClic
         limit,
         warn_ratio: warnRatio
       });
+      if (addToast) addToast(`Budget set for ${titleCase(selectedCat)}.`, 'success');
       if (onRefresh) await onRefresh();
       await fetchBudgetsConfig();
     } catch (err) {
       console.error('Failed to set budget:', err);
+      if (addToast) addToast(err?.message || 'Failed to set budget.', 'error');
     } finally {
       setSaving(false);
     }
@@ -113,10 +115,12 @@ export const BudgetTab = ({ categoryTotals, budgetStatuses, dark, onCategoryClic
     setSaving(true);
     try {
       await deleteBudget(selectedCat);
+      if (addToast) addToast(`Cleared budget for ${titleCase(selectedCat)}.`, 'success');
       if (onRefresh) await onRefresh();
       await fetchBudgetsConfig();
     } catch (err) {
       console.error('Failed to delete budget:', err);
+      if (addToast) addToast(err?.message || 'Failed to clear budget.', 'error');
     } finally {
       setSaving(false);
     }
