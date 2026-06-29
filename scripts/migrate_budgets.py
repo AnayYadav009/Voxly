@@ -28,13 +28,13 @@ def migrate():
             if isinstance(limit_val, dict):
                 # {user_id: {category: limit}} format
                 u_id = category
-                for cat, l in limit_val.items():
+                for cat, lim in limit_val.items():
                     conn.execute(
                         """
                         INSERT OR REPLACE INTO user_budgets (user_id, category, monthly_limit, warn_at)
                         VALUES (?, ?, ?, 0.8)
                         """,
-                        (u_id, cat.lower().strip(), float(l))
+                        (u_id, cat.lower().strip(), float(lim))
                     )
             else:
                 # Flat format {category: limit}

@@ -40,19 +40,53 @@ export const BudgetTab = ({ categoryTotals, budgetStatuses, dark, onCategoryClic
   }, [selectedCat, budgetsConfig]);
 
   const rows = useMemo(() => {
-    return (budgetStatuses || []).map(r => {
-      const pct = r.percentage ? Math.min(r.percentage * 100, 120) : 0;
-      const color = r.level === 'critical' ? '#ef4444' : r.level === 'warning' ? '#f59e0b' : '#22c55e';
+    const statuses = Array.isArray(budgetStatuses) ? budgetStatuses : [];
+    const totals = Array.isArray(categoryTotals) ? categoryTotals : [];
+
+    const categoriesMap = new Map();
+
+    // 1. Add configured budgets
+    statuses.forEach(s => {
+      const catKey = s.category.toLowerCase();
+      categoriesMap.set(catKey, {
+        category: titleCase(s.category),
+        rawCategory: s.category,
+        spent: s.spent || 0,
+        budget: s.limit,
+        isConfigured: true,
+        warnRatio: s.warn_ratio || 0.8
+      });
+    });
+
+    // 2. Add categories with active expenses but no custom budget
+    totals.forEach(t => {
+      const catKey = t.category.toLowerCase();
+      if (!categoriesMap.has(catKey)) {
+        categoriesMap.set(catKey, {
+          category: titleCase(t.category),
+          rawCategory: t.category,
+          spent: t.amount,
+          budget: 5000, // default limit
+          isConfigured: false,
+          warnRatio: 0.8 // default warn ratio
+        });
+      } else {
+        const existing = categoriesMap.get(catKey);
+        existing.spent = t.amount;
+      }
+    });
+
+    return Array.from(categoriesMap.values()).map(r => {
+      const pct = r.budget ? (r.spent / r.budget) * 100 : 0;
+      const warnRatio = r.warnRatio;
+      const color = pct >= 100 ? '#ef4444' : pct >= (warnRatio * 100) ? '#f59e0b' : '#22c55e';
       return {
-        category: titleCase(r.category),
-        rawCategory: r.category,
-        spent: r.spent,
-        budget: r.limit,
+        ...r,
         pct,
         color
       };
     });
-  }, [budgetStatuses]);
+  }, [budgetStatuses, categoryTotals]);
 
   const handleSave = async () => {
     const limit = Number(limitInput);
@@ -96,40 +130,104 @@ export const BudgetTab = ({ categoryTotals, budgetStatuses, dark, onCategoryClic
       <div className="vx-card p-5">
         <p className="text-sm font-medium mb-4" style={{ color: 'var(--text-1)' }}>Monthly Budget Overview</p>
         {rows.length > 0 ? (
-          <div className="space-y-4">
-            {rows.map((r) => (
-              <div
-                key={r.category}
-                className="cursor-pointer"
-                onClick={() => onCategoryClick && onCategoryClick(r.rawCategory)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    onCategoryClick && onCategoryClick(r.rawCategory);
-                  }
-                }}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs" style={{ color: 'var(--text-2)' }}>{r.category}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs" style={{ color: 'var(--text-2)' }}>{formatINR(r.spent)} / {formatINR(r.budget)}</span>
-                    <span
-                      className="text-xs font-medium px-1.5 py-0.5 rounded"
-                      style={{
-                        color: r.color,
-                        background: r.color === '#ef4444' ? 'rgba(248,113,113,0.10)' : r.color === '#f59e0b' ? 'rgba(251,191,36,0.10)' : 'rgba(52,211,153,0.10)',
-                      }}
-                    >
-                      {Math.round(r.pct)}%
-                    </span>
+          <div className="space-y-3.5">
+            {rows.map((r) => {
+              const remaining = r.budget - r.spent;
+              const isOver = remaining < 0;
+              const absRemaining = Math.abs(remaining);
+
+              return (
+                <div
+                  key={r.category}
+                  className="p-4 rounded-xl border transition-all hover:border-gray-500/30"
+                  style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
+                >
+                  <div className="flex flex-col gap-2.5">
+                    {/* Header: Category Name & Config status & pct */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold" style={{ color: 'var(--text-1)' }}>{r.category}</span>
+                        <span
+                          className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded tracking-wider"
+                          style={{
+                            color: r.isConfigured ? 'var(--accent)' : 'var(--text-3)',
+                            background: r.isConfigured ? 'var(--accent-muted)' : 'rgba(255,255,255,0.03)',
+                            border: `1px solid ${r.isConfigured ? 'var(--accent-border)' : 'var(--border)'}`
+                          }}
+                        >
+                          {r.isConfigured ? 'Custom' : 'Default'}
+                        </span>
+                      </div>
+                      <span
+                        className="text-xs font-semibold px-2 py-0.5 rounded"
+                        style={{
+                          color: r.color,
+                          background: r.color === '#ef4444' ? 'rgba(239,68,68,0.10)' : r.color === '#f59e0b' ? 'rgba(245,158,11,0.10)' : 'rgba(34,197,94,0.10)',
+                        }}
+                      >
+                        {Math.round(r.pct)}% Used
+                      </span>
+                    </div>
+
+                    {/* Progress Bar with Alert threshold indicator line */}
+                    <div className="relative pt-1 pb-1">
+                      <div className="vx-bar-track h-2 bg-black/20 rounded-full overflow-hidden">
+                        <div className="vx-bar-fill h-full rounded-full transition-all duration-300" style={{ width: `${Math.min(r.pct, 100)}%`, background: r.color }} />
+                      </div>
+                      {/* Warning tick mark */}
+                      <div
+                        className="absolute top-0 bottom-0 w-0.5 bg-yellow-500/50"
+                        style={{ left: `${r.warnRatio * 100}%` }}
+                        title={`Alert Threshold: ${r.warnRatio * 100}%`}
+                      />
+                    </div>
+
+                    {/* Spent / Limit info & Alerts info & remaining status */}
+                    <div className="flex flex-wrap items-center justify-between text-xs gap-2 pt-0.5">
+                      <div style={{ color: 'var(--text-2)' }}>
+                        <span className="font-semibold" style={{ color: 'var(--text-1)' }}>{formatINR(r.spent)}</span>
+                        <span> of {formatINR(r.budget)} limit</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                          Alerts at {Math.round(r.warnRatio * 100)}% ({formatINR(r.budget * r.warnRatio)})
+                        </span>
+                        
+                        <span className={`font-semibold ${isOver ? 'text-red-400' : 'text-emerald-400'}`}>
+                          {isOver ? `Over by ${formatINR(absRemaining)}` : `${formatINR(absRemaining)} left`}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex justify-end gap-4 border-t pt-2 mt-1" style={{ borderColor: 'var(--border)' }}>
+                      <button
+                        type="button"
+                        onClick={() => onCategoryClick && onCategoryClick(r.rawCategory)}
+                        className="text-[11px] font-semibold hover:underline"
+                        style={{ color: 'var(--accent)' }}
+                      >
+                        View Expenses
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCat(r.rawCategory);
+                          setLimitInput(r.budget.toString());
+                          setWarnRatioInput(Math.round(r.warnRatio * 100).toString());
+                          document.getElementById('manage-budget-form')?.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                        className="text-[11px] font-semibold hover:underline"
+                        style={{ color: 'var(--text-2)' }}
+                      >
+                        Edit Limit
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="vx-bar-track">
-                  <div className="vx-bar-fill" style={{ width: `${Math.min(r.pct, 100)}%`, background: r.color }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="text-xs" style={{ color: 'var(--text-2)' }}>No budgets configured. Set one below to start tracking!</p>
@@ -137,7 +235,7 @@ export const BudgetTab = ({ categoryTotals, budgetStatuses, dark, onCategoryClic
       </div>
 
       {/* Manual Budget Management Form */}
-      <div className="vx-card p-5">
+      <div id="manage-budget-form" className="vx-card p-5">
         <p className="text-sm font-medium mb-4" style={{ color: 'var(--text-1)' }}>Manage Budget Manually</p>
         <div className="grid sm:grid-cols-3 gap-4">
           <div className="flex flex-col gap-1.5">

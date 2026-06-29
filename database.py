@@ -139,7 +139,8 @@ class DictCursor:
 
     def fetchone(self):
         row = self.cursor.fetchone()
-        if row is None: return None
+        if row is None:
+            return None
         return _row_factory(self.cursor, row)
 
     def fetchall(self):
