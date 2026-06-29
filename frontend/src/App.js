@@ -79,7 +79,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
   const [budgetAlertOverride, setBudgetAlertOverride] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
-  const [newExpense, setNewExpense] = useState({ amount: '', category: 'food' });
+  const [newExpense, setNewExpense] = useState({ amount: '', category: 'food', description: '' });
 
   // Fix 3: Memory leak / state updates on unmounted component safety check
   const isMounted = useRef(true);
@@ -139,14 +139,14 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
     } else {
       amount = Number(newExpense.amount);
       category = newExpense.category;
-      description = '';
+      description = newExpense.description || '';
     }
     if (!amount || amount <= 0) return;
     setSubmitting(true);
     try {
       const r = await apiAddExpense({ amount, category, description });
       addToast(r.message || 'Expense added.', 'success');
-      setNewExpense({ amount: '', category: 'food' });
+      setNewExpense({ amount: '', category: 'food', description: '' });
       await loadData(true);
     } catch (err) { 
       addToast(err?.message || 'Failed.', 'error'); 
@@ -620,6 +620,14 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                         <option key={c} value={c}>{titleCase(c)}</option>
                       ))}
                     </select>
+                    <input
+                      type="text"
+                      value={newExpense.description || ''}
+                      onChange={e => setNewExpense({ ...newExpense, description: e.target.value })}
+                      placeholder="Description (optional)"
+                      className="flex-1 sm:flex-[2] rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors"
+                      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-1)' }}
+                    />
                     <button
                       type="button"
                       onClick={handleAddExpense}

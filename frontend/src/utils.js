@@ -1,4 +1,3 @@
-import { CATEGORY_COLORS } from './constants';
 
 export const formatINR = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '₹0';
@@ -10,12 +9,6 @@ export const formatINR = (value) => {
 
 export const titleCase = (v) =>
   v ? v.toString().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
-
-export const getCatColor = (cat, dark) => {
-  const key = (cat || '').toLowerCase();
-  const entry = CATEGORY_COLORS[key] || CATEGORY_COLORS.other;
-  return dark ? entry.dark : entry.light;
-};
 
 export const parseCurrencyValue = (line) => {
   if (!line) return null;
