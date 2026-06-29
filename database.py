@@ -316,14 +316,7 @@ def create_table() -> None:
     log_info("Database schema ensured.")
 
 
-_skip_auto = os.environ.get("VOXLY_SKIP_AUTOCREATE", "false").lower() in {"1", "true", "yes"}
 _running_pytest = any(k.startswith("PYTEST") for k in os.environ.keys())
-
-if not _skip_auto and not _running_pytest:
-    try:
-        create_table()
-    except Exception as exc:
-        log_error("Automatic schema creation failed: %s", exc)
 
 
 # Automatically ensure schema on import in normal runs.
