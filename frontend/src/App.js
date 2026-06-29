@@ -887,9 +887,65 @@ const AuthScreen = ({ scheme, setScheme }) => {
 // ─── Loading screen ───────────────────────────────────────────────────────────
 
 const LoadingScreen = () => (
-  <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
-    <div className="rounded-2xl border px-8 py-6 text-sm" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-2)' }}>
-      Loading your workspace…
+  <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: 'var(--bg)' }}>
+    {/* Ambient Glows */}
+    <div className="vx-loader-glow-1" />
+    <div className="vx-loader-glow-2" />
+
+    {/* Glassmorphic Loader Container */}
+    <div 
+      className="backdrop-blur-xl rounded-3xl border p-10 flex flex-col items-center gap-6 shadow-2xl relative z-10 max-w-sm w-full mx-4"
+      style={{ background: 'rgba(255, 255, 255, 0.02)', borderColor: 'var(--border)' }}
+    >
+      {/* Pulse Voice Icon */}
+      <div className="relative w-16 h-16 flex items-center justify-center mb-2">
+        <div className="vx-loader-ring w-16 h-16" style={{ animationDelay: '0s' }} />
+        <div className="vx-loader-ring w-16 h-16" style={{ animationDelay: '0.8s' }} />
+        <div className="vx-loader-ring w-16 h-16" style={{ animationDelay: '1.6s' }} />
+        <div 
+          className="w-12 h-12 rounded-full flex items-center justify-center z-10 shadow-lg"
+          style={{ background: 'var(--accent)' }}
+        >
+          <Mic className="w-5 h-5 text-slate-900" />
+        </div>
+      </div>
+
+      {/* Brand Title */}
+      <div className="flex flex-col items-center gap-1">
+        <span 
+          className="text-2xl font-bold tracking-[0.25em] pl-[0.25em]"
+          style={{
+            background: 'linear-gradient(135deg, var(--accent) 0%, var(--top-accent-2) 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            fontFamily: 'Space Grotesk, sans-serif'
+          }}
+        >
+          VOXLY
+        </span>
+        <span className="text-[10px] uppercase tracking-widest font-medium" style={{ color: 'var(--text-3)' }}>
+          Voice Finance Tracker
+        </span>
+      </div>
+
+      {/* Equalizer Visualizer */}
+      <div className="vx-loader-eq my-2">
+        <div className="vx-loader-eq-bar" />
+        <div className="vx-loader-eq-bar" />
+        <div className="vx-loader-eq-bar" />
+        <div className="vx-loader-eq-bar" />
+        <div className="vx-loader-eq-bar" />
+      </div>
+
+      {/* Loading Status */}
+      <div className="flex flex-col gap-1.5 items-center mt-2">
+        <span className="text-xs font-medium" style={{ color: 'var(--text-1)' }}>
+          Loading your workspace…
+        </span>
+        <span className="text-[10px] font-medium" style={{ color: 'var(--text-2)' }}>
+          Syncing secure ledger
+        </span>
+      </div>
     </div>
   </div>
 );
