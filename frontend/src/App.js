@@ -342,7 +342,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                 )}
 
                 {/* Stat grid — always visible */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="vx-stat" style={{ '--stat-accent': 'var(--top-accent-1)' }}>
                     <span className="vx-label">Today</span>
                     <span className="vx-value">{formatINR(todayTotal)}</span>
