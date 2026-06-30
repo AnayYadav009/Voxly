@@ -1,6 +1,6 @@
 {
   "short_name": "Voxly",
-  "name": "Voxly – Voice Finance Tracker",
+  "name": "Voxly – Voice Spendings Tracker",
   "description": "Capture expenses with voice commands, see summaries, and stay on budget from any device.",
   "categories": ["finance", "productivity", "lifestyle"],
   "dir": "ltr",

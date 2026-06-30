@@ -67,6 +67,11 @@ if redis is not None:
 limiter.init_app(app)
 
 
+@app.errorhandler(429)
+def rate_limit_exceeded(e):
+    return jsonify({"error": "Too many requests. Please wait and try again."}), 429
+
+
 def _error(message: str, status: int):
     return jsonify(error=message), status
 

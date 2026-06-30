@@ -1187,20 +1187,6 @@ def get_daily_totals_for_month(year: int, month: int, user_id: Optional[str] = N
         log_error("Failed to fetch daily totals for month: %s", exc)
         raise
 
-    """Get user budgets."""
-    if not user_id:
-        return []
-    try:
-        with get_db() as conn:
-            cur = conn.execute(
-                "SELECT category, limit_amount, warn_ratio FROM user_budgets WHERE user_id = ?",
-                (user_id,)
-            )
-            return [dict(row) for row in cur.fetchall()]
-    except sqlite3.Error as exc:
-        log_error("Failed to fetch user budgets: %s", exc)
-        raise
-
 def set_user_budget(user_id: str, category: str, limit_amount: float, warn_ratio: float) -> None:
     """Set user budget."""
     if not user_id or not category:
@@ -1378,40 +1364,4 @@ def add_push_subscription(user_id: str, subscription_json: str) -> None:
         log_info("Push subscription saved for user %s", user_id)
     except Exception as exc:
         log_error("Failed to save push subscription for user %s: %s", user_id, exc)
-
-
-class ExpenseRepository:
-    create_user = staticmethod(create_user)
-    get_user_by_email_public = staticmethod(get_user_by_email_public)
-    get_user_by_id_public = staticmethod(get_user_by_id_public)
-    get_user_by_email = staticmethod(get_user_by_email)
-    get_user_by_id = staticmethod(get_user_by_id)
-    update_last_logout = staticmethod(update_last_logout)
-    touch_user_timestamp = staticmethod(touch_user_timestamp)
-    update_user_log_opt_in = staticmethod(update_user_log_opt_in)
-    get_user_preferences = staticmethod(get_user_preferences)
-    log_command_event = staticmethod(log_command_event)
-    add_expense = staticmethod(add_expense)
-    get_total_today = staticmethod(get_total_today)
-    get_total_by_category = staticmethod(get_total_by_category)
-    get_recent_expenses = staticmethod(get_recent_expenses)
-    delete_last_expense = staticmethod(delete_last_expense)
-    delete_expense = staticmethod(delete_expense)
-    update_expense = staticmethod(update_expense)
-    get_weekly_summary = staticmethod(get_weekly_summary)
-    get_monthly_summary = staticmethod(get_monthly_summary)
-    get_monthly_totals_by_category = staticmethod(get_monthly_totals_by_category)
-    get_recurring_expenses = staticmethod(get_recurring_expenses)
-    get_all_expenses = staticmethod(get_all_expenses)
-    get_user_budgets = staticmethod(get_user_budgets)
-    get_dashboard_snapshot = staticmethod(get_dashboard_snapshot)
-    set_user_budget = staticmethod(set_user_budget)
-    remove_user_budget = staticmethod(remove_user_budget)
-    get_last_command = staticmethod(get_last_command)
-    set_last_command = staticmethod(set_last_command)
-    get_cached_insight = staticmethod(get_cached_insight)
-    save_insight = staticmethod(save_insight)
-    seed_default_budgets = staticmethod(seed_default_budgets)
-    get_user_budget_limits = staticmethod(get_user_budget_limits)
-    add_push_subscription = staticmethod(add_push_subscription)
 

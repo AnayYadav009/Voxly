@@ -1,6 +1,6 @@
 # Frontend (React)
 
-This directory contains the React UI for the Voice Finance Tracker. Although the project was bootstrapped with Create React App, the workflow below reflects the expectations for this repository.
+This directory contains the React UI for the Voice Spendings Tracker. Although the project was bootstrapped with Create React App, the workflow below reflects the expectations for this repository.
 
 ## Core Scripts
 

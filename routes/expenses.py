@@ -228,56 +228,62 @@ def api_forecast():
     if not user:
         return _unauthorized_response()
 
-    import numpy as np
+    from utils.dates import get_local_now
+    import calendar as cal_module
 
     user_id = user["id"]
 
-    df = get_monthly_totals_by_month(months=7, user_id=user_id)
+    rows = get_monthly_totals_by_month(months=7, user_id=user_id)
 
-    if df.empty or len(df) < 2:
-        return jsonify({
-            "projected_total": None,
-            "confidence": "low",
-            "trend": "flat",
-            "monthly_series": [],
-            "days_remaining": None,
-            "message": "Not enough data yet. Add expenses across at least 2 months for a forecast.",
-        })
+    # rows is list[dict] with keys: "month" (str YYYY-MM), "total" (float)
+    _NOT_ENOUGH = {
+        "projected_total": None,
+        "confidence": "low",
+        "trend": "flat",
+        "monthly_series": [],
+        "days_remaining": None,
+        "message": "Not enough data yet. Add expenses across at least 2 months for a forecast.",
+    }
 
-    from utils.dates import get_local_now
+    if not rows or len(rows) < 2:
+        return jsonify(_NOT_ENOUGH)
+
     today = get_local_now().date()
     current_month_key = today.strftime("%Y-%m")
 
-    complete = df[df["month"] != current_month_key].copy()
-    current_rows = df[df["month"] == current_month_key]
-    current_spent = float(current_rows["total"].iloc[0]) if not current_rows.empty else 0.0
+    complete = [r for r in rows if str(r["month"]) != current_month_key]
+    current_rows = [r for r in rows if str(r["month"]) == current_month_key]
+    current_spent = float(current_rows[0]["total"]) if current_rows else 0.0
 
     series = [
-        {"month": str(row["month"]), "total": float(row["total"])}
-        for _, row in df.iterrows()
+        {"month": str(r["month"]), "total": float(r["total"])}
+        for r in rows
     ]
 
     if len(complete) < 2:
-        return jsonify({
-            "projected_total": None,
-            "confidence": "low",
-            "trend": "flat",
-            "monthly_series": series,
-            "days_remaining": None,
-            "message": "Not enough complete months for a forecast.",
-        })
+        return jsonify({**_NOT_ENOUGH, "monthly_series": series,
+                        "message": "Not enough complete months for a forecast."})
 
-    x = np.arange(len(complete), dtype=float)
-    y = complete["total"].astype(float).values
+    # --- Pure-Python linear regression (no pandas / numpy required) ---
+    y_vals = [float(r["total"]) for r in complete]
+    n = len(y_vals)
+    x_vals = list(range(n))
 
-    coeffs = np.polyfit(x, y, 1)
-    slope = float(coeffs[0])
-    next_x = float(len(complete))
-    trend_prediction = float(np.polyval(coeffs, next_x))
+    x_mean = sum(x_vals) / n
+    y_mean = sum(y_vals) / n
 
-    y_mean = float(np.mean(y))
-    ss_tot = float(np.sum((y - y_mean) ** 2))
-    ss_res = float(np.sum((y - np.polyval(coeffs, x)) ** 2))
+    ss_xy = sum((x_vals[i] - x_mean) * (y_vals[i] - y_mean) for i in range(n))
+    ss_xx = sum((x_vals[i] - x_mean) ** 2 for i in range(n))
+
+    slope = ss_xy / ss_xx if ss_xx else 0.0
+    intercept = y_mean - slope * x_mean
+
+    next_x = float(n)
+    trend_prediction = slope * next_x + intercept
+
+    # R² calculation
+    ss_tot = sum((y - y_mean) ** 2 for y in y_vals)
+    ss_res = sum((y_vals[i] - (slope * x_vals[i] + intercept)) ** 2 for i in range(n))
     r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
     if r_squared >= 0.75:
@@ -287,8 +293,7 @@ def api_forecast():
     else:
         confidence = "low"
 
-    import calendar
-    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    days_in_month = cal_module.monthrange(today.year, today.month)[1]
     days_elapsed = today.day
     days_remaining = days_in_month - days_elapsed
 
@@ -317,6 +322,7 @@ def api_forecast():
         "days_remaining": days_remaining,
         "days_elapsed": days_elapsed,
     })
+
 
 
 @expenses_bp.route("/recurring")

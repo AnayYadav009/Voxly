@@ -2,7 +2,7 @@ import os
 import sqlite3
 from typing import Dict, Any, Optional
 from flask import Blueprint, request, jsonify, make_response, g
-from app import _error
+from app import _error, _extract_bearer_token, _unauthorized_response
 
 from config import ACCESS_TOKEN_EXPIRES_MINUTES, REFRESH_TOKEN_EXPIRES_DAYS
 from database import get_user_by_email, create_user, touch_user_timestamp, get_user_by_id, seed_default_budgets, update_last_logout, revoke_token, add_push_subscription
@@ -32,14 +32,7 @@ def _public_user_payload(user: Dict[str, Any]) -> Dict[str, Any]:
         "log_opt_in": bool(user.get("log_opt_in")),
     }
 
-def _extract_bearer_token() -> Optional[str]:
-    auth_header = request.headers.get("Authorization", "").strip()
-    if auth_header.lower().startswith("bearer "):
-        return auth_header.split(" ", 1)[1].strip()
-    return request.cookies.get("access_token")
 
-def _unauthorized_response():
-    return _error("Authentication required.", 401)
 
 def _require_authenticated_user() -> Optional[Dict[str, Any]]:
     user = getattr(g, "current_user", None)
@@ -85,7 +78,7 @@ def _auth_success_response(user: Dict[str, Any]):
     return response
 
 @auth_bp.route("/register", methods=["POST"])
-@limiter.limit("5 per minute; 20 per hour")
+@limiter.limit("5 per minute")
 def api_auth_register():
     """
     Handle API auth register.
@@ -140,7 +133,7 @@ def api_auth_register():
     return _auth_success_response(user)
 
 @auth_bp.route("/login", methods=["POST"])
-@limiter.limit("10 per minute; 50 per hour")
+@limiter.limit("10 per minute")
 def api_auth_login():
     """
     Handle API auth login.

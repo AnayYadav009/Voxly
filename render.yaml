@@ -2,10 +2,10 @@ services:
   - type: web
     name: voxly-api
     runtime: python
-    region: oregon
+    region: singapore
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    startCommand: gunicorn -c gunicorn.conf.py app:app
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
@@ -14,7 +14,7 @@ services:
       - key: VOXLY_SKIP_AUTOCREATE
         value: "false"
       - key: TURSO_URL
-        sync: false # you will paste the real value in the Render dashboard
+        sync: false
       - key: TURSO_TOKEN
         sync: false
       - key: VOXLY_JWT_SECRET

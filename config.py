@@ -4,7 +4,7 @@ Loads environment variables and sets up project-wide constants,
 ensuring security defaults are respected depending on the environment.
 """
 import os
-import warnings
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -40,21 +40,15 @@ _ALLOWED_ORIGINS_RAW = (
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 RATE_LIMIT_STORAGE_URI = os.environ.get("VOXLY_RATE_LIMIT_STORAGE_URI", REDIS_URL)
 _raw_jwt_secret = os.environ.get("VOXLY_JWT_SECRET", "")
-_is_dev = os.environ.get("FLASK_ENV", "production") == "development"
+_is_production = os.environ.get("FLASK_ENV", "production") == "production" or os.environ.get("RENDER") == "true"
 
-if not _raw_jwt_secret or (not _is_dev and _raw_jwt_secret == "dev-secret-change-me"):
-    if _is_dev:
-        _raw_jwt_secret = "dev-secret-change-me"
-        warnings.warn(
-            "VOXLY_JWT_SECRET is not set. Using an insecure default. "
-            "Set this variable before deploying.",
-            stacklevel=2,
-        )
+if not _raw_jwt_secret or (_is_production and _raw_jwt_secret == "dev-secret-change-me"):
+    if _is_production:
+        sys.stderr.write("FATAL: VOXLY_JWT_SECRET environment variable must be set to a secure value in production.\n")
+        sys.exit(1)
     else:
-        raise RuntimeError(
-            "VOXLY_JWT_SECRET environment variable must be set to a secure value in production. "
-            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
-        )
+        sys.stdout.write("WARNING: VOXLY_JWT_SECRET is missing or insecure. Falling back to insecure development secret.\n")
+        _raw_jwt_secret = "dev-secret-change-me"
 
 JWT_SECRET: str = _raw_jwt_secret
 JWT_ALGORITHM = os.environ.get("VOXLY_JWT_ALGORITHM", "HS256")

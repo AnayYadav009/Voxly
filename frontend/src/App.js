@@ -924,7 +924,7 @@ const LoadingScreen = () => (
           VOXLY
         </span>
         <span className="text-[10px] uppercase tracking-widest font-medium" style={{ color: 'var(--text-3)' }}>
-          Voice Finance Tracker
+          Voice Spendings Tracker
         </span>
       </div>
 
