@@ -11,7 +11,13 @@ Key decisions:
 - preload_app = True: imports app (including spaCy model) once in the master
   process, then forks workers. Workers inherit the loaded model via copy-on-
   write, so each worker does NOT pay the spaCy startup cost independently.
-"""
+# Perform gevent monkey patching before any other modules are imported (especially when preload_app = True)
+try:
+    import gevent.monkey
+    gevent.monkey.patch_all()
+except ImportError:
+    pass
+
 import os
 
 bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
