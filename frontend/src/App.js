@@ -79,7 +79,9 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
   const [budgetAlertOverride, setBudgetAlertOverride] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
-  const [newExpense, setNewExpense] = useState({ amount: '', category: 'food', description: '' });
+  const [newExpense, setNewExpense] = useState({ amount: '', category: 'food', description: '', date: '' });
+  const [dateDialogOpen, setDateDialogOpen] = useState(false);
+  const [dialogDate, setDialogDate] = useState('');
 
   // Fix 3: Memory leak / state updates on unmounted component safety check
   const isMounted = useRef(true);
@@ -131,15 +133,17 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
   });
 
   const handleAddExpense = useCallback(async (arg) => {
-    let amount, category, description;
+    let amount, category, description, date;
     if (arg && typeof arg === 'object' && 'amount' in arg) {
       amount = arg.amount;
       category = arg.category;
       description = arg.description;
+      date = arg.date;
     } else {
       amount = Number(newExpense.amount);
       category = newExpense.category;
       description = newExpense.description || '';
+      date = newExpense.date;
     }
     const isCustomCommand = typeof description === 'string' &&
       /^\d+(?:\.\d+)?\s+\w+\s+.+?\s+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(description.trim());
@@ -150,10 +154,11 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
       const r = await apiAddExpense({
         amount: isCustomCommand ? 0 : amount,
         category,
-        description
+        description,
+        date: date || undefined
       });
       addToast(r.message || 'Expense added.', 'success');
-      setNewExpense({ amount: '', category: 'food', description: '' });
+      setNewExpense({ amount: '', category: 'food', description: '', date: '' });
       await loadData(true);
     } catch (err) { 
       addToast(err?.message || 'Failed.', 'error'); 
@@ -627,7 +632,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                         <option key={c} value={c}>{titleCase(c)}</option>
                       ))}
                     </select>
-                    <input
+                     <input
                       type="text"
                       value={newExpense.description || ''}
                       onChange={e => setNewExpense({ ...newExpense, description: e.target.value })}
@@ -635,6 +640,18 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                       className="flex-1 sm:flex-[2] rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors"
                       style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-1)' }}
                     />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDialogDate(newExpense.date || new Date().toISOString().split('T')[0]);
+                        setDateDialogOpen(true);
+                      }}
+                      className="rounded-xl border p-2.5 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+                      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-2)' }}
+                      title="Set custom date"
+                    >
+                      <Calendar className="w-4 h-4" style={{ color: newExpense.date ? 'var(--accent)' : 'inherit' }} />
+                    </button>
                     <button
                       type="button"
                       onClick={handleAddExpense}
@@ -645,6 +662,24 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                       {submitting ? 'Adding…' : 'Add'}
                     </button>
                   </div>
+                  {newExpense.date && (() => {
+                    const [yr, mn, dy] = newExpense.date.split('-');
+                    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    const formattedDate = `${dy} ${months[parseInt(mn, 10) - 1]} ${yr}`;
+                    return (
+                      <div className="mt-3 flex items-center gap-2 text-xs font-medium animate-fade-in" style={{ color: 'var(--accent)' }}>
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>Custom Date: {formattedDate}</span>
+                        <button
+                          type="button"
+                          onClick={() => setNewExpense(prev => ({ ...prev, date: '' }))}
+                          className="rounded-full p-0.5 hover:bg-red-50 dark:hover:bg-red-950/20 text-red-500 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Recent expenses */}
@@ -810,6 +845,64 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
           category={selectedCategory}
           onClose={() => setSelectedCategory(null)}
         />
+      )}
+
+      {/* Custom Date Selector Dialogue Box */}
+      {dateDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm overflow-hidden rounded-2xl border shadow-2xl transition-all"
+               style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+            <div className="border-b px-6 py-4 flex justify-between items-center"
+                 style={{ borderColor: 'var(--border)' }}>
+              <h3 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                <Calendar className="w-4 h-4" style={{ color: 'var(--accent)' }} /> Set custom date
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDateDialogOpen(false)}
+                className="rounded-lg p-1 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                style={{ color: 'var(--text-2)' }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-medium" style={{ color: 'var(--text-2)' }}>Select Date</label>
+                <input
+                  type="date"
+                  value={dialogDate}
+                  onChange={e => setDialogDate(e.target.value)}
+                  className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors"
+                  style={{ background: 'var(--bg-body)', borderColor: 'var(--border)', color: 'var(--text-1)' }}
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    setDialogDate(todayStr);
+                  }}
+                  className="flex-1 rounded-xl border py-2 text-xs font-medium transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-1)' }}
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewExpense(prev => ({ ...prev, date: dialogDate }));
+                    setDateDialogOpen(false);
+                  }}
+                  className="flex-1 vx-btn-primary py-2 text-xs font-semibold"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
