@@ -142,7 +142,7 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
       description = newExpense.description || '';
     }
     const isCustomCommand = typeof description === 'string' &&
-      /^\d+(?:\.\d+)?\s+\w+\s+.+?\s+\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(description.trim());
+      /^\d+(?:\.\d+)?\s+\w+\s+.+?\s+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(description.trim());
 
     if (!isCustomCommand && (!amount || amount <= 0)) return;
     setSubmitting(true);
