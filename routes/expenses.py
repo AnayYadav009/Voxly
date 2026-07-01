@@ -110,11 +110,71 @@ def api_add():
     if not user:
         return _unauthorized_response()
     data = request.get_json(silent=True) or {}
-    try:
-        amount = float(data.get("amount", 0))
-        category = sanitize_category(data.get("category", ""))
-    except (TypeError, ValueError):
-        return _error("Invalid amount or category.", 400)
+    
+    description = data.get("description", "") or ""
+    amount_raw = data.get("amount")
+    category_raw = data.get("category")
+    date_val = None
+
+    import re
+    from datetime import date
+
+    def parse_custom_date(date_str: str) -> str | None:
+        match = re.match(r'^(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})$', date_str.strip())
+        if not match:
+            return None
+        try:
+            day = int(match.group(1))
+            month = int(match.group(2))
+            year = int(match.group(3))
+            if year < 100:
+                year += 2000
+            parsed_dt = date(year, month, day)
+            return parsed_dt.strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+
+    # Pattern 1: Full command format, e.g. "20 food swiggy 30/06/26"
+    # Matches: <amount> <category> <description> <date>
+    full_pattern = r'^(\d+(?:\.\d+)?)\s+(\w+)\s+(.+?)\s+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})$'
+    full_match = re.match(full_pattern, description.strip())
+
+    # Pattern 2: Suffix format, e.g. "swiggy 30/06/26"
+    # Matches: <description> <date>
+    suffix_pattern = r'^(.+?)\s+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})$'
+    suffix_match = re.match(suffix_pattern, description.strip())
+
+    if full_match:
+        try:
+            parsed_amt = float(full_match.group(1))
+            parsed_cat = sanitize_category(full_match.group(2))
+            parsed_desc = full_match.group(3)
+            parsed_dt = parse_custom_date(full_match.group(4))
+            if parsed_dt:
+                amount = parsed_amt
+                category = parsed_cat
+                description = parsed_desc
+                date_val = parsed_dt
+        except Exception:
+            pass
+    elif suffix_match:
+        try:
+            parsed_dt = parse_custom_date(suffix_match.group(2))
+            if parsed_dt:
+                description = suffix_match.group(1)
+                date_val = parsed_dt
+                amount = float(amount_raw) if amount_raw is not None else 0.0
+                category = sanitize_category(category_raw or "")
+        except Exception:
+            pass
+
+    if date_val is None:
+        try:
+            amount = float(amount_raw) if amount_raw is not None else 0.0
+            category = sanitize_category(category_raw or "")
+        except (TypeError, ValueError):
+            return _error("Invalid amount or category.", 400)
+        date_val = data.get("date")
 
     if amount <= 0 or not category:
         return _error("Amount must be positive and category required.", 400)
@@ -127,7 +187,8 @@ def api_add():
         expense_id = add_expense(
             amount,
             category,
-            description=data.get("description"),
+            date=date_val,
+            description=description,
             user_id=user["id"],
         )
         log_info("Expense added via API (id=%s)", expense_id)

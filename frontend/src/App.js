@@ -141,10 +141,17 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
       category = newExpense.category;
       description = newExpense.description || '';
     }
-    if (!amount || amount <= 0) return;
+    const isCustomCommand = typeof description === 'string' &&
+      /^\d+(?:\.\d+)?\s+\w+\s+.+?\s+\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(description.trim());
+
+    if (!isCustomCommand && (!amount || amount <= 0)) return;
     setSubmitting(true);
     try {
-      const r = await apiAddExpense({ amount, category, description });
+      const r = await apiAddExpense({
+        amount: isCustomCommand ? 0 : amount,
+        category,
+        description
+      });
       addToast(r.message || 'Expense added.', 'success');
       setNewExpense({ amount: '', category: 'food', description: '' });
       await loadData(true);
