@@ -25,9 +25,23 @@ def fetch_data(query: str, params: tuple = ()) -> List[Dict[str, Any]]:
         raise
 
 def get_category_breakdown(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Retrieve total spending broken down by category."""
+    """Retrieve total spending broken down by category for the current month."""
+    from utils.dates import get_local_now, month_range
+    from datetime import timedelta
+
+    now = get_local_now()
+    start_dt, next_month_dt = month_range(now.year, now.month)
+    start_date = start_dt.strftime("%Y-%m-%d")
+    end_date = (next_month_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+
     where_clause = _user_where(user_id)
-    params: tuple = (user_id,) if user_id else ()
+    if where_clause:
+        where_clause += " AND date >= ? AND date <= ?"
+        params: tuple = (user_id, start_date, end_date)
+    else:
+        where_clause = "WHERE date >= ? AND date <= ?"
+        params = (start_date, end_date)
+
     query = (
         """
         SELECT category, COALESCE(SUM(amount), 0) AS total

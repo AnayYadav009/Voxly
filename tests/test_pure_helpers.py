@@ -169,3 +169,38 @@ class TestDashboardEndpoint:
         )
         assert resp.status_code == 200
         assert resp.get_json().get("reload") is True
+
+
+class TestCategoryBreakdownFilter:
+    def test_category_breakdown_only_current_month(self, client):
+        c, headers, user = client
+        from database import add_expense
+        from utils.dates import get_local_now
+        from datetime import timedelta
+        
+        now = get_local_now()
+        today_str = now.strftime("%Y-%m-%d")
+        
+        # Add expense in current month
+        add_expense(100.0, "food", date=today_str, user_id=user["id"])
+        
+        # Add expense in previous month
+        prev_month_dt = now.replace(day=1) - timedelta(days=1)
+        prev_month_str = prev_month_dt.strftime("%Y-%m-%d")
+        add_expense(500.0, "transport", date=prev_month_str, user_id=user["id"])
+        
+        # Add expense in next month
+        first_of_this_month = now.replace(day=1)
+        # Add 32 days to get to next month
+        next_month_dt = first_of_this_month + timedelta(days=32)
+        next_month_str = next_month_dt.strftime("%Y-%m-%d")
+        add_expense(1000.0, "shopping", date=next_month_str, user_id=user["id"])
+        
+        # Call get_category_breakdown directly and verify
+        from visual_module import get_category_breakdown
+        breakdown = get_category_breakdown(user_id=user["id"])
+        
+        # We expect only "food" with total 100.0 (current month), and not transport (500) or shopping (1000)
+        assert len(breakdown) == 1
+        assert breakdown[0]["category"] == "food"
+        assert breakdown[0]["total"] == 100.0
