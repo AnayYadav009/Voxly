@@ -22,6 +22,12 @@ const CategoryDrilldown = ({ category: initialCategory, onClose }) => {
   const [period, setPeriod] = useState('month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+
+  useEffect(() => {
+    if (initialCategory) {
+      setCategory(initialCategory);
+    }
+  }, [initialCategory]);
   
   // Sorting state: default Date Newest First ('date', 'desc')
   const [sortBy, setSortBy] = useState('date');
@@ -53,21 +59,21 @@ const CategoryDrilldown = ({ category: initialCategory, onClose }) => {
       const past = new Date();
       past.setDate(today.getDate() - 6);
       start = formatDate(past);
-      end = formatDate(today);
+      end = '';
     } else if (period === '30d') {
       const past = new Date();
       past.setDate(today.getDate() - 29);
       start = formatDate(past);
-      end = formatDate(today);
+      end = '';
     } else if (period === '90d') {
       const past = new Date();
       past.setDate(today.getDate() - 89);
       start = formatDate(past);
-      end = formatDate(today);
+      end = '';
     } else if (period === 'month') {
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
       start = formatDate(firstDay);
-      end = formatDate(today);
+      end = '';
     } else if (period === 'last_month') {
       const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
@@ -76,7 +82,7 @@ const CategoryDrilldown = ({ category: initialCategory, onClose }) => {
     } else if (period === 'year') {
       const firstDay = new Date(today.getFullYear(), 0, 1);
       start = formatDate(firstDay);
-      end = formatDate(today);
+      end = '';
     } else if (period === 'all') {
       start = '';
       end = '';

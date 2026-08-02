@@ -213,19 +213,19 @@ def api_expenses_by_category():
     sort_by = request.args.get("sort_by")
     sort_order = request.args.get("order")
 
-    start_date = default_start if start_param is None else None
-    if start_param:
+    start_date = None
+    if start_param and start_param.strip() and start_param.strip().lower() != "all":
         try:
-            datetime.strptime(start_param, "%Y-%m-%d")
-            start_date = start_param
+            datetime.strptime(start_param.strip(), "%Y-%m-%d")
+            start_date = start_param.strip()
         except ValueError:
             pass
 
-    end_date = default_end if end_param is None else None
-    if end_param:
+    end_date = None
+    if end_param and end_param.strip() and end_param.strip().lower() != "all":
         try:
-            datetime.strptime(end_param, "%Y-%m-%d")
-            end_date = end_param
+            datetime.strptime(end_param.strip(), "%Y-%m-%d")
+            end_date = end_param.strip()
         except ValueError:
             pass
 

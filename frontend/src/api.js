@@ -346,8 +346,8 @@ export const getMonthlyTotals = (months = 6) =>
 export const getCategoryExpenses = (category, { start, end, sortBy, order } = {}) => {
   const params = new URLSearchParams();
   if (category) params.set('category', category);
-  if (start) params.set('start', start);
-  if (end) params.set('end', end);
+  if (start !== undefined && start !== null) params.set('start', start);
+  if (end !== undefined && end !== null) params.set('end', end);
   if (sortBy) params.set('sort_by', sortBy);
   if (order) params.set('order', order);
   return apiFetch(`/api/expenses/by-category?${params.toString()}`);
