@@ -1061,19 +1061,25 @@ def get_all_expenses(
 
 
 def get_expenses_in_category(
-    category: str,
+    category: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     user_id: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Return all expense rows for `category`, optionally filtered to
-    [start_date, end_date] inclusive (DATE_FORMAT strings), and optionally
-    scoped to user_id. Ordered most-recent first."""
+    """Return all expense rows for `category` (or all categories if category is 'all' or None),
+    optionally filtered to [start_date, end_date] inclusive (DATE_FORMAT strings), and optionally
+    scoped to user_id. Supports custom sort_by ('date', 'amount', 'description') and sort_order ('asc', 'desc')."""
     try:
         with get_db() as conn:
             query_parts = ["SELECT id, amount, category, description, payment_method, date, time FROM expenses"]
-            where_clauses = ["LOWER(category) = ?"]
-            params = [category.lower()]
+            where_clauses = []
+            params = []
+
+            if category and category.strip().lower() != "all":
+                where_clauses.append("LOWER(category) = ?")
+                params.append(category.strip().lower())
 
             if start_date:
                 where_clauses.append("date >= ?")
@@ -1085,7 +1091,18 @@ def get_expenses_in_category(
                 where_clauses.append("user_id = ?")
                 params.append(user_id)
 
-            sql = f"{' '.join(query_parts)} WHERE {' AND '.join(where_clauses)} ORDER BY date DESC, time DESC, id DESC"
+            where_str = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+            direction = "ASC" if (sort_order and sort_order.lower() == "asc") else "DESC"
+
+            if sort_by == "amount":
+                order_clause = f"ORDER BY amount {direction}, date DESC, time DESC, id DESC"
+            elif sort_by == "description":
+                order_clause = f"ORDER BY description {direction}, date DESC, time DESC, id DESC"
+            else:
+                order_clause = f"ORDER BY date {direction}, time {direction}, id {direction}"
+
+            sql = f"{' '.join(query_parts)}{where_str} {order_clause}"
             cur = conn.execute(sql, tuple(params))
             rows = cur.fetchall()
             return [dict(row) for row in rows]

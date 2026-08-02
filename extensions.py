@@ -1,13 +1,16 @@
 """Flask extensions shared across the application."""
 
-import redis
+try:
+    import redis
+except ImportError:
+    redis = None
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from config import RATE_LIMIT_STORAGE_URI, REDIS_URL
 
 redis_client = None
-if REDIS_URL and (REDIS_URL.startswith("redis://") or REDIS_URL.startswith("rediss://")):
+if redis is not None and REDIS_URL and (REDIS_URL.startswith("redis://") or REDIS_URL.startswith("rediss://")):
     try:
         _client = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=1.0)
         _client.ping()

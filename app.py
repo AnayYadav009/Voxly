@@ -41,7 +41,11 @@ app.config["SWAGGER"] = {
     "uiversion": 3
 }
 swagger = Swagger(app)
-app.secret_key = os.environ.get("VOXLY_SESSION_SECRET", os.urandom(24))
+session_secret = os.environ.get("VOXLY_SESSION_SECRET")
+if not session_secret:
+    log_error("WARNING: VOXLY_SESSION_SECRET is not configured in the environment. Falling back to a random secret key. Sessions will be invalidated upon application restart.")
+    session_secret = os.urandom(24)
+app.secret_key = session_secret
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 init_directories()
 
@@ -194,9 +198,9 @@ def api_expenses_by_category():
     if not user:
         return _unauthorized_response()
 
-    category = request.args.get("category")
+    category = request.args.get("category", "all")
     if not category:
-        return jsonify({"error": "category is required."}), 400
+        category = "all"
 
     from datetime import datetime, timezone
     from utils.dates import get_local_now
@@ -206,8 +210,10 @@ def api_expenses_by_category():
 
     start_param = request.args.get("start")
     end_param = request.args.get("end")
+    sort_by = request.args.get("sort_by")
+    sort_order = request.args.get("order")
 
-    start_date = default_start
+    start_date = default_start if start_param is None else None
     if start_param:
         try:
             datetime.strptime(start_param, "%Y-%m-%d")
@@ -215,7 +221,7 @@ def api_expenses_by_category():
         except ValueError:
             pass
 
-    end_date = default_end
+    end_date = default_end if end_param is None else None
     if end_param:
         try:
             datetime.strptime(end_param, "%Y-%m-%d")
@@ -227,7 +233,14 @@ def api_expenses_by_category():
     from merchant_module import analyze_expenses
 
     try:
-        expenses = get_expenses_in_category(category, start_date, end_date, user_id=user["id"])
+        expenses = get_expenses_in_category(
+            category=category,
+            start_date=start_date,
+            end_date=end_date,
+            user_id=user["id"],
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
         analysis = analyze_expenses(expenses)
     except Exception as exc:
         log_error("Failed to fetch/analyze expenses by category: %s", exc)
@@ -235,7 +248,7 @@ def api_expenses_by_category():
 
     response = {
         "category": category,
-        "period": {"start": start_date, "end": end_date},
+        "period": {"start": start_date or "", "end": end_date or ""},
         "total": analysis["total"],
         "count": analysis["count"],
         "expenses": expenses,
@@ -360,61 +373,7 @@ app.register_blueprint(charts_bp)
 app.register_blueprint(voice_bp)
 
 
-# ---------------------------------------------------------------------------
-# Groq / external-LLM safety wrapper
-# ---------------------------------------------------------------------------
-# Import httpx only if Groq integration is active, to avoid adding startup
-# overhead when it isn't used.
-def _call_groq_with_fallback(
-    text: str,
-    *,
-    groq_api_key: Optional[str] = None,
-    timeout: float = 2.5,
-):
-    """Call the Groq API with a hard timeout; fall back to rule-based parsing.
 
-    If GROQ_API_KEY is not set or the call exceeds `timeout` seconds, the
-    function returns the result of the local `parse_expense` instead. This
-    guarantees the endpoint never hangs waiting for an external service.
-
-    Usage (when wiring Groq into api_voice_command):
-        parsed = _call_groq_with_fallback(command_text, groq_api_key=os.getenv("GROQ_API_KEY"))
-    """
-    key = groq_api_key or os.environ.get("GROQ_API_KEY")
-    if not key:
-        return parse_expense(text)
-
-    try:
-        import httpx
-        response = httpx.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama3-8b-8192",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Extract expense information from the user's command. "
-                            "Return JSON with keys: action, amount, category, date, description."
-                        ),
-                    },
-                    {"role": "user", "content": text},
-                ],
-                "max_tokens": 200,
-                "temperature": 0,
-            },
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        # TODO: parse response.json() into the same shape as parse_expense() output
-        return parse_expense(text)  # placeholder until Groq response parsing is implemented
-    except Exception as exc:
-        log_error("Groq call failed (falling back to rule-based): %s", exc)
-        return parse_expense(text)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,8 @@ import {
   Plus,
   Settings,
   X,
+  SlidersHorizontal,
+  Filter,
 } from 'lucide-react';
 
 import SchemeToggle, { useColorScheme } from './components/SchemeToggle';
@@ -489,9 +491,20 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {/* Category pie */}
                   <div className="vx-card p-5">
-                    <p className="text-sm font-medium mb-4 flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-                      <PieChart className="w-4 h-4" style={{ color: 'var(--accent)' }} /> Category split
-                    </p>
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm font-medium flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                        <PieChart className="w-4 h-4" style={{ color: 'var(--accent)' }} /> Category split
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategory('all')}
+                        className="text-xs font-semibold hover:underline flex items-center gap-1 transition-colors"
+                        style={{ color: 'var(--accent)' }}
+                        title="Custom sort expenses for any category and timeframe"
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" /> Custom Sort
+                      </button>
+                    </div>
                     {categorySpending.length > 0 ? (
                       <>
                         <div className="relative w-36 h-36 mx-auto mb-4">
@@ -602,6 +615,26 @@ const VoiceFinanceDashboard = ({ user, preferences = {}, onLogout, onToggleLoggi
                       ? monthlySummaryLines.map((line, i) => <p key={i} className="text-xs mb-1" style={{ color: 'var(--text-2)', lineHeight: 1.6 }}>{line}</p>)
                       : <p className="text-xs" style={{ color: 'var(--text-2)' }}>Monthly breakdown will appear once you log expenses.</p>}
                   </div>
+                </div>
+
+                {/* Custom Category & Timeframe Expenses Explorer Banner */}
+                <div className="vx-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4" style={{ background: 'var(--accent-muted)', borderColor: 'var(--accent-border)' }}>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-white/10 dark:bg-black/10">
+                      <SlidersHorizontal className="w-5 h-5" style={{ color: 'var(--accent)' }} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold" style={{ color: 'var(--text-1)' }}>Custom Expense Sorting & Timeframe Analysis</h4>
+                      <p className="text-xs" style={{ color: 'var(--text-2)' }}>Custom sort & filter expenses under any category for 7d, 30d, 90d, Month, Year, All-Time, or Custom date ranges.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory('all')}
+                    className="vx-btn-primary text-xs px-4 py-2 shrink-0 flex items-center justify-center gap-1.5"
+                  >
+                    <Filter className="w-3.5 h-3.5" /> Launch Custom Sorting & Explorer
+                  </button>
                 </div>
               </>
             )}

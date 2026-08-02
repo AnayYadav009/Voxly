@@ -396,6 +396,7 @@ def parse_expense(text: str) -> Dict[str, Any]:
             temperature=0.0,
             max_tokens=256,
             response_format={"type": "json_object"},
+            timeout=3.0,
         )
         raw = response.choices[0].message.content or "{}"
         parsed = json.loads(raw)

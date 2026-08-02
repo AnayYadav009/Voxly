@@ -122,8 +122,8 @@ def test_api_expenses_by_category_unauthorized():
 def test_api_expenses_by_category_missing_category(temp_db, auth_headers):
     client = app.test_client()
     response = client.get("/api/expenses/by-category", headers=auth_headers)
-    assert response.status_code == 400
-    assert response.get_json()["error"] == "category is required."
+    assert response.status_code == 200
+    assert response.get_json()["category"] == "all"
 
 def test_api_expenses_by_category_success(temp_db, auth_headers):
     user_id = temp_db["user"]["id"]
@@ -142,11 +142,33 @@ def test_api_expenses_by_category_success(temp_db, auth_headers):
     assert len(data["expenses"]) == 2
     assert len(data["merchant_breakdown"]) == 2
 
-    # Verify merchant breakdown
-    # Food Delivery (swiggy) should be 150
-    # Other (local grocery) should be 80
     mb = data["merchant_breakdown"]
     assert mb[0]["label"] == "Food Delivery"
     assert mb[0]["total"] == 150.0
     assert mb[1]["label"] == "Other"
     assert mb[1]["total"] == 80.0
+
+def test_custom_sorting_and_all_category(temp_db, auth_headers):
+    user_id = temp_db["user"]["id"]
+    add_expense(10.0, "Food", "2026-06-01", description="apple", user_id=user_id)
+    add_expense(500.0, "Transport", "2026-06-02", description="flight", user_id=user_id)
+    add_expense(100.0, "Food", "2026-06-03", description="dinner", user_id=user_id)
+
+    client = app.test_client()
+
+    # Test sorting by amount desc for date range
+    res_amt_desc = client.get("/api/expenses/by-category?category=all&start=2026-06-01&end=2026-06-30&sort_by=amount&order=desc", headers=auth_headers)
+    assert res_amt_desc.status_code == 200
+    exps = res_amt_desc.get_json()["expenses"]
+    assert len(exps) == 3
+    assert exps[0]["amount"] == 500.0
+    assert exps[1]["amount"] == 100.0
+    assert exps[2]["amount"] == 10.0
+
+    # Test sorting by amount asc for all-time (start=&end=)
+    res_amt_asc = client.get("/api/expenses/by-category?category=all&start=&end=&sort_by=amount&order=asc", headers=auth_headers)
+    assert res_amt_asc.status_code == 200
+    exps_asc = res_amt_asc.get_json()["expenses"]
+    assert len(exps_asc) == 3
+    assert exps_asc[0]["amount"] == 10.0
+    assert exps_asc[2]["amount"] == 500.0

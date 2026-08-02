@@ -90,20 +90,10 @@ def get_monthly_totals_by_month(months: int = 6, user_id: Optional[str] = None) 
 
 
 def plot_category_pie(user_id: Optional[str] = None) -> Optional[str]:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    plt.close("all")
     return None
 
 
 def plot_daily_bar(user_id: Optional[str] = None) -> Optional[str]:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    plt.close("all")
     return None
 
 def generate_all_charts(user_id: Optional[str] = None) -> Dict[str, Optional[str]]:
